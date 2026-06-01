@@ -231,13 +231,18 @@ def config_from_settings(
         )
 
     colors = as_int(settings, "colors", 64, 2, 1024)
+    grid_snap_enabled = as_bool(settings, "gridSnap", False)
+    grid_snap_quantize_first = as_bool(settings, "gridQuantizeFirst", True)
+    dither = as_choice(settings, "dither", "none", ("ordered", "floyd", "none"))
+    if grid_snap_enabled and grid_snap_quantize_first:
+        dither = "none"
     protected_ranges = parse_ranges(str(settings.get("protectedHueRanges", "")).strip())
     return pag.PixelArtConfig(
         target_width=width,
         target_height=height,
         colors=colors,
         preview_scale=1,
-        dither=as_choice(settings, "dither", "none", ("ordered", "floyd", "none")),
+        dither=dither,
         dither_strength=as_float(settings, "ditherStrength", 14.0, 0.0, 128.0),
         dither_scope=as_choice(settings, "ditherScope", "adaptive", ("global", "adaptive")),
         dither_edge_threshold=as_float(settings, "ditherEdgeThreshold", 0.28, 0.0, 1.0),
@@ -248,9 +253,9 @@ def config_from_settings(
         sharpness=as_float(settings, "sharpness", 0.0, 0.0, 500.0),
         autocontrast_cutoff=as_float(settings, "autocontrastCutoff", 0.0, 0.0, 30.0),
         resample=as_choice(settings, "resample", "box", ("box", "bicubic", "lanczos")),
-        grid_snap_enabled=as_bool(settings, "gridSnap", False),
+        grid_snap_enabled=grid_snap_enabled,
         grid_snap_method=as_choice(settings, "gridSnapMethod", "center", ("cell-mode", "center", "dark-stroke")),
-        grid_snap_quantize_first=as_bool(settings, "gridQuantizeFirst", True),
+        grid_snap_quantize_first=grid_snap_quantize_first,
         grid_snap_dark_threshold=as_float(settings, "gridDarkThreshold", 38.0, 0.0, 255.0),
         preserve_luma=as_bool(settings, "preserveLuma", False),
         preserve_saturation=as_bool(settings, "preserveSaturation", False),
@@ -376,6 +381,13 @@ def convert_in_memory(
             settings_for_config["aspectDriver"] = "height"
 
     config = config_from_settings(settings_for_config, source_size=image.size)
+    requested_dither = as_choice(settings, "dither", "none", ("ordered", "floyd", "none"))
+    dither_disabled_reason = (
+        "gridQuantizeFirst"
+        if requested_dither != "none" and config.grid_snap_enabled and config.grid_snap_quantize_first
+        else None
+    )
+
     if config.dither != "none" and config.colors > 256:
         raise ValueError("dither modes support at most 256 colors")
 
@@ -547,6 +559,9 @@ def convert_in_memory(
             "outputSaturation": round(output_saturation, 4),
             "edgeMode": edge_mode,
             "paletteInput": palette_mode,
+            "dither": config.dither,
+            "ditherRequested": requested_dither,
+            "ditherDisabledReason": dither_disabled_reason,
             "ditherScope": config.dither_scope if config.dither == "ordered" else None,
             "gridSnap": config.grid_snap_enabled,
             "gridSnapMethod": config.grid_snap_method if config.grid_snap_enabled else None,
@@ -1436,14 +1451,28 @@ HTML = r"""<!doctype html>
     }
 
     function syncConditionalControls() {
-      const dither = settingEl('dither').value;
+      let dither = settingEl('dither').value;
       const edgeMode = settingEl('edgeMode').value;
       const gridSnap = settingEl('gridSnap').checked;
       const gridAutoSize = settingEl('gridAutoSize').checked;
+      const gridQuantizeFirst = settingEl('gridQuantizeFirst').checked;
       const gridMethod = settingEl('gridSnapMethod').value;
       const protectedHueActive = settingEl('protectedHueRanges').value.trim().length > 0;
       const bilateralActive = numberSetting('bilateralRadius') > 0;
       const edgeActive = edgeMode !== 'none';
+      const ditherBlockedByGridVote = gridSnap && gridQuantizeFirst;
+      const ditherEl = settingEl('dither');
+      if (ditherBlockedByGridVote && dither !== 'none') {
+        ditherEl.dataset.blockedValue = dither;
+        ditherEl.value = 'none';
+        dither = 'none';
+      } else if (!ditherBlockedByGridVote && ditherEl.dataset.blockedValue) {
+        if (dither === 'none') {
+          ditherEl.value = ditherEl.dataset.blockedValue;
+          dither = ditherEl.value;
+        }
+        delete ditherEl.dataset.blockedValue;
+      }
       const orderedDither = dither === 'ordered';
       const adaptiveDither = orderedDither && settingEl('ditherScope').value === 'adaptive';
       const flatCleanupActive =
@@ -1451,14 +1480,37 @@ HTML = r"""<!doctype html>
         (numberSetting('flatRegionPaletteColors') > 0 || numberSetting('flatRegionChannelStep') > 1);
       const mixelCleanupActive = numberSetting('mixelCleanupPasses') > 0;
 
-      setControlDisabled('ditherStrength', !orderedDither, 'Used only by ordered Bayer dithering.');
-      setControlDisabled('ditherScope', !orderedDither, 'Used only by ordered Bayer dithering.');
-      setControlDisabled('ditherErrorThreshold', !adaptiveDither, 'Used only by adaptive ordered dithering.');
-      setControlDisabled('ditherLumaRange', !adaptiveDither, 'Used only by adaptive ordered dithering.');
+      setControlDisabled(
+        'dither',
+        ditherBlockedByGridVote,
+        'Unavailable while Grid Snap quantize before grid vote is enabled.'
+      );
+      setControlDisabled(
+        'ditherStrength',
+        ditherBlockedByGridVote || !orderedDither,
+        ditherBlockedByGridVote ? 'Dither is unavailable while quantize before grid vote is enabled.' : 'Used only by ordered Bayer dithering.'
+      );
+      setControlDisabled(
+        'ditherScope',
+        ditherBlockedByGridVote || !orderedDither,
+        ditherBlockedByGridVote ? 'Dither is unavailable while quantize before grid vote is enabled.' : 'Used only by ordered Bayer dithering.'
+      );
+      setControlDisabled(
+        'ditherErrorThreshold',
+        ditherBlockedByGridVote || !adaptiveDither,
+        ditherBlockedByGridVote ? 'Dither is unavailable while quantize before grid vote is enabled.' : 'Used only by adaptive ordered dithering.'
+      );
+      setControlDisabled(
+        'ditherLumaRange',
+        ditherBlockedByGridVote || !adaptiveDither,
+        ditherBlockedByGridVote ? 'Dither is unavailable while quantize before grid vote is enabled.' : 'Used only by adaptive ordered dithering.'
+      );
       setControlDisabled(
         'ditherEdgeThreshold',
-        !(adaptiveDither && edgeActive),
-        edgeActive ? 'Used only by adaptive ordered dithering.' : 'Requires an edge filter other than none.'
+        ditherBlockedByGridVote || !(adaptiveDither && edgeActive),
+        ditherBlockedByGridVote
+          ? 'Dither is unavailable while quantize before grid vote is enabled.'
+          : (edgeActive ? 'Used only by adaptive ordered dithering.' : 'Requires an edge filter other than none.')
       );
 
       setControlDisabled('resample', gridSnap, 'Grid Snap replaces normal resizing and does not use this resample filter.');
@@ -1855,7 +1907,10 @@ HTML = r"""<!doctype html>
         drawPalette(result.palette || []);
         const s = result.stats || {};
         const cacheText = s.cacheHit ? ', cached' : (s.stageCacheHits ? `, ${s.stageCacheHits} stage hits` : '');
-        statsEl.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
+        const ditherText = s.ditherDisabledReason
+          ? ', dither off: grid quantize-first'
+          : (s.dither && s.dither !== 'none' ? `, dither ${s.dither}` : '');
+        statsEl.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}${ditherText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
         const variants = Array.isArray(s.gridVariants) ? s.gridVariants : [];
         settingEl('gridVariant').max = Math.max(0, variants.length - 1);
         if (s.gridAutoSize && s.gridVariant) {

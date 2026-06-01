@@ -63,8 +63,8 @@ quantize before grid vote: on
 Cell reducer: nearest center sample
 Palette strategy: projected-rare
 Colors: 64
-Dither: none or ordered Bayer
-Dither scope: adaptive smooth areas
+Dither: none while quantize before grid vote is on
+Dither scope: adaptive smooth areas after turning quantize before grid vote off
 ```
 
 For larger environment concepts where color richness matters:

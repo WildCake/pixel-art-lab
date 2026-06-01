@@ -4648,6 +4648,12 @@ def apply_floyd_steinberg_dither(
     return out
 
 
+def effective_dither_mode(config: PixelArtConfig) -> str:
+    if config.grid_snap_enabled and config.grid_snap_quantize_first:
+        return "none"
+    return config.dither
+
+
 def quantize_to_palette(
     image: Image.Image,
     config: PixelArtConfig,
@@ -4655,7 +4661,8 @@ def quantize_to_palette(
     palette_image: Image.Image | None = None,
     palette_edge_mask: Image.Image | None = None,
 ) -> tuple[Image.Image, list[str]]:
-    if config.dither != "none" and config.colors > 256:
+    dither = effective_dither_mode(config)
+    if dither != "none" and config.colors > 256:
         raise ValueError("--colors above 256 currently supports --dither none only")
 
     output, palette_rgb = quantize_median_cut_rgb(
@@ -4678,10 +4685,10 @@ def quantize_to_palette(
         protected_hue_min_saturation=config.protected_hue_min_saturation,
         hue_match_weight=config.hue_match_weight,
     )
-    if config.dither == "none":
+    if dither == "none":
         return output, [f"#{red:02x}{green:02x}{blue:02x}" for red, green, blue in palette_rgb]
 
-    if config.dither == "ordered":
+    if dither == "ordered":
         output = apply_ordered_dither(
             image,
             palette_rgb,
@@ -4694,7 +4701,7 @@ def quantize_to_palette(
             hue_match_weight=config.hue_match_weight,
             color_distance=config.color_distance,
         )
-    elif config.dither == "floyd":
+    elif dither == "floyd":
         output = apply_floyd_steinberg_dither(
             image,
             palette_rgb,
@@ -4702,7 +4709,7 @@ def quantize_to_palette(
             color_distance=config.color_distance,
         )
     else:
-        raise ValueError(f"unsupported dither mode: {config.dither}")
+        raise ValueError(f"unsupported dither mode: {dither}")
 
     return output, [f"#{red:02x}{green:02x}{blue:02x}" for red, green, blue in palette_rgb]
 
@@ -4850,6 +4857,12 @@ def convert(input_path: Path, output_path: Path, preview_path: Path | None, conf
 
     output_luma = luma_mean(pixel_art)
     output_saturation = luma_weighted_saturation_mean(pixel_art)
+    dither = effective_dither_mode(config)
+    dither_disabled_reason = (
+        "grid_quantize_first"
+        if config.dither != "none" and dither == "none" and config.grid_snap_enabled and config.grid_snap_quantize_first
+        else None
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pixel_art.save(output_path)
@@ -4861,12 +4874,14 @@ def convert(input_path: Path, output_path: Path, preview_path: Path | None, conf
         "logical_size": [config.target_width, config.target_height],
         "colors_requested": config.colors,
         "colors_written": len(palette),
-        "dither": config.dither,
-        "dither_strength": config.dither_strength if config.dither == "ordered" else None,
-        "dither_scope": config.dither_scope if config.dither == "ordered" else None,
-        "dither_edge_threshold": config.dither_edge_threshold if config.dither == "ordered" else None,
-        "dither_luma_range": config.dither_luma_range if config.dither == "ordered" else None,
-        "dither_error_threshold": config.dither_error_threshold if config.dither == "ordered" else None,
+        "dither": dither,
+        "dither_requested": config.dither,
+        "dither_disabled_reason": dither_disabled_reason,
+        "dither_strength": config.dither_strength if dither == "ordered" else None,
+        "dither_scope": config.dither_scope if dither == "ordered" else None,
+        "dither_edge_threshold": config.dither_edge_threshold if dither == "ordered" else None,
+        "dither_luma_range": config.dither_luma_range if dither == "ordered" else None,
+        "dither_error_threshold": config.dither_error_threshold if dither == "ordered" else None,
         "resample": config.resample,
         "grid_snap_enabled": config.grid_snap_enabled,
         "grid_snap_method": config.grid_snap_method if config.grid_snap_enabled else None,
@@ -4952,7 +4967,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dither",
         choices=("ordered", "floyd", "none"),
         default="none",
-        help="Dithering mode after palette reduction, default: none.",
+        help="Dithering mode after palette reduction, default: none. Ignored when --grid-snap uses quantize-first voting.",
     )
     parser.add_argument(
         "--dither-strength",
@@ -5004,7 +5019,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-grid-quantize-first",
         action="store_true",
-        help="Disable palette quantization before grid cell voting.",
+        help="Disable palette quantization before grid cell voting. Required when testing dither with --grid-snap.",
     )
     parser.add_argument(
         "--grid-dark-threshold",
@@ -5234,7 +5249,8 @@ def main() -> None:
 
     if args.colors < 2 or args.colors > 1024:
         parser.error("--colors must be between 2 and 1024")
-    if args.dither != "none" and args.colors > 256:
+    dither_disabled_by_grid_vote = args.grid_snap and not args.no_grid_quantize_first and args.dither != "none"
+    if args.dither != "none" and args.colors > 256 and not dither_disabled_by_grid_vote:
         parser.error("--dither modes support at most 256 colors")
     if args.dither_strength < 0:
         parser.error("--dither-strength must be at least 0")

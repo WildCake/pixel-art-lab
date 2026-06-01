@@ -29,7 +29,7 @@ After import, the GUI derives the output aspect ratio from the source image. The
 `Grid Snap` is for GPT/image-generation pseudo-pixel art where the model drew enlarged "mixels" instead of a true logical pixel grid. When enabled, the normal resize stage is replaced by a hidden-grid transfer stage:
 
 - `auto size from detected mixels` estimates likely source-pixel cell sizes from horizontal and vertical edge profiles, then exposes the best candidate logical resolutions through the `Auto variant` slider. Turning this off keeps manual `Width` and `Height` fully in control.
-- `quantize before grid vote` is enabled by default. It limits the source colors with the active Palette Builder before cell voting, so tiny intended colors survive as palette colors instead of being replaced by a separate hidden median-cut palette.
+- `quantize before grid vote` is enabled by default. It limits the source colors with the active Palette Builder before cell voting, so tiny intended colors survive as palette colors instead of being replaced by a separate hidden median-cut palette. Dithering is disabled while this is on because every voted cell has already been snapped into the active palette before the final palette stage.
 - `cell mode` chooses the most common quantized color inside each detected output cell.
 - `nearest center sample` takes the nearest source color at the center of each output cell and avoids averaging.
 - `dark-stroke bias` starts from cell mode, then preserves narrow dark high-contrast strokes inside a cell, which helps one-mixel black separators on bones, fingers, ribs, teeth, and other line-art details.
@@ -73,7 +73,7 @@ The GUI can send different edge masks into the existing palette and cleanup pipe
 
 ## Dithering
 
-Ordered Bayer dithering and Floyd-Steinberg error diffusion both use the active palette strategy from the source image. They do not rebuild a separate Pillow palette, so rare protected colors from `projected-*`, hue protection, and interesting-color slots remain available when dithering is enabled. The `adaptive smooth areas` scope applies to ordered dithering and suppresses it on strong edge-mask pixels, high local-luma-detail pixels, and pixels whose nearest-palette error is already low. This keeps dithering available for smooth backgrounds, fog, sky, water, and large gradients without chewing up silhouettes and detailed object interiors.
+Ordered Bayer dithering and Floyd-Steinberg error diffusion both use the active palette strategy from the source image. They do not rebuild a separate Pillow palette, so rare protected colors from `projected-*`, hue protection, and interesting-color slots remain available when dithering is enabled. Dithering is available after normal resizing or after `Grid Snap` with `quantize before grid vote` turned off. With quantize-first grid voting, dithering is intentionally disabled because the grid vote already maps source cells into palette colors and leaves no useful quantization error to distribute. The `adaptive smooth areas` scope applies to ordered dithering and suppresses it on strong edge-mask pixels, high local-luma-detail pixels, and pixels whose nearest-palette error is already low. This keeps dithering available for smooth backgrounds, fog, sky, water, and large gradients without chewing up silhouettes and detailed object interiors.
 
 ## Notes
 
