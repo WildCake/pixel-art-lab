@@ -106,6 +106,12 @@ def as_choice(settings: dict[str, Any], key: str, default: str, choices: tuple[s
     return value if value in choices else default
 
 
+def bilateral_mode_from_settings(settings: dict[str, Any]) -> str:
+    legacy_mode = as_choice(settings, "bilateralMode", "edge-safe", ("standard", "edge-safe"))
+    safe_edges = as_bool(settings, "bilateralSafeEdges", legacy_mode == "edge-safe")
+    return "edge-safe" if safe_edges else "standard"
+
+
 def data_url_to_image(data_url: str) -> Image.Image:
     if "," in data_url:
         _header, data_url = data_url.split(",", 1)
@@ -261,7 +267,7 @@ def config_from_settings(
         preserve_saturation=as_bool(settings, "preserveSaturation", False),
         palette_source=None,
         bilateral_radius=as_int(settings, "bilateralRadius", 0, 0, 8),
-        bilateral_mode=as_choice(settings, "bilateralMode", "edge-safe", ("standard", "edge-safe")),
+        bilateral_mode=bilateral_mode_from_settings(settings),
         bilateral_sigma_color=as_float(settings, "bilateralSigmaColor", 18.0, 1.0, 128.0),
         bilateral_sigma_space=as_float(settings, "bilateralSigmaSpace", 1.4, 0.1, 16.0),
         edge_palette_weight=as_float(settings, "edgePaletteWeight", 0.45, 0.0, 12.0),
@@ -1240,15 +1246,11 @@ HTML = r"""<!doctype html>
         </div>
         <div class="row">
           <label>
-            <span class="label-title">Bilateral mode <span class="field-hint">edge rule</span></span>
-            <select id="bilateralMode" data-setting data-tooltip="Standard smooths by color distance only. Edge-safe also blocks blur across contours, dark strokes, and local detail jumps.">
-              <option value="edge-safe" selected>edge-safe contours</option>
-              <option value="standard">standard bilateral</option>
-            </select>
-          </label>
-          <label>
             <span class="label-title">Bilateral radius <span class="field-hint">smooth</span></span>
             <input id="bilateralRadius" data-setting type="number" min="0" max="8" value="0" data-tooltip="Edge-preserving smoothing radius. It does not cut palette directly, but can remove rare source colors before quantization.">
+          </label>
+          <label class="check" data-tooltip="When enabled, bilateral smoothing refuses to blur across contours, black strokes, and local detail jumps.">
+            <input id="bilateralSafeEdges" data-setting type="checkbox" checked> Bilateral safe edges
           </label>
         </div>
         <div class="row">
@@ -1534,9 +1536,15 @@ HTML = r"""<!doctype html>
       const normalized = {};
       const source = settings && typeof settings === 'object' ? settings : {};
       settingControls().forEach((el) => {
-        const value = Object.prototype.hasOwnProperty.call(source, el.id)
-          ? source[el.id]
-          : (defaultSettings ? defaultSettings[el.id] : readSettingValue(el));
+        let value = defaultSettings ? defaultSettings[el.id] : readSettingValue(el);
+        if (Object.prototype.hasOwnProperty.call(source, el.id)) {
+          value = source[el.id];
+        } else if (
+          el.id === 'bilateralSafeEdges' &&
+          Object.prototype.hasOwnProperty.call(source, 'bilateralMode')
+        ) {
+          value = source.bilateralMode === 'edge-safe';
+        }
         normalized[el.id] = coerceSettingValue(el, value);
       });
       return normalized;
@@ -1712,7 +1720,7 @@ HTML = r"""<!doctype html>
         'Used only by the interesting palette strategy.'
       );
 
-      setControlDisabled('bilateralMode', !bilateralActive, 'Used only when Bilateral radius is above 0.');
+      setControlDisabled('bilateralSafeEdges', !bilateralActive, 'Used only when Bilateral radius is above 0.');
       setControlDisabled('bilateralSigmaColor', !bilateralActive, 'Used only when Bilateral radius is above 0.');
       setControlDisabled('bilateralSigmaSpace', !bilateralActive, 'Used only when Bilateral radius is above 0.');
 

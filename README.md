@@ -81,7 +81,7 @@ Color distance: weighted RGB
 Colors: 64
 Dither: ordered Bayer if smooth backgrounds need texture, otherwise none
 Dither scope: adaptive smooth areas
-Bilateral mode: edge-safe contours if smoothing is needed
+Bilateral safe edges: on if smoothing is needed
 ```
 
 For larger environment concepts where color richness matters:

@@ -68,7 +68,7 @@ The projected strategies use the imported image as the palette donor. `projected
 
 Projected strategies reserve rare tonal cells as well as saturated hue accents. Pale masks, whites, grays, ivory highlights, and other low-saturation accents should not be dropped just because they are less colorful than fire, flowers, or magic effects. The active `Color distance` setting is used during projected candidate scoring and final palette mapping.
 
-`Bilateral mode` has two algorithms. `standard bilateral` is the classic color-distance smoother and is kept for comparison. `edge-safe contours` first checks the edge mask, local 3x3 brightness range, strong luma jumps, and dark-stroke crossings; it only blends neighbors that pass those gates, then caps the blend near detail. Use it when a source needs flat-area noise cleanup but black outlines, skeleton fingers, ribs, or other one-pixel contour marks must stay crisp.
+`Bilateral safe edges` is a separate switch for the bilateral smoother. Off means classic color-distance bilateral smoothing. On means the edge-safe variant first checks the edge mask, local 3x3 brightness range, strong luma jumps, and dark-stroke crossings; it only blends neighbors that pass those gates, then caps the blend near detail. Use it when a source needs flat-area noise cleanup but black outlines, skeleton fingers, ribs, or other one-pixel contour marks must stay crisp.
 
 ## Performance Rule
 

@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import pixel_art_grid as pag
+import pixel_art_lab as lab
 
 
 def channel_variance(image: Image.Image, box: tuple[int, int, int, int]) -> float:
@@ -54,6 +55,13 @@ def build_fixture() -> Image.Image:
 def main() -> None:
     source = build_fixture()
     edge_mask = pag.build_sobel_edge_mask(source, threshold=0.02)
+
+    safe_config = lab.config_from_settings({"bilateralRadius": 1, "bilateralSafeEdges": True}, source_size=source.size)
+    plain_config = lab.config_from_settings({"bilateralRadius": 1, "bilateralSafeEdges": False}, source_size=source.size)
+    legacy_config = lab.config_from_settings({"bilateralRadius": 1, "bilateralMode": "standard"}, source_size=source.size)
+    assert safe_config.bilateral_mode == "edge-safe"
+    assert plain_config.bilateral_mode == "standard"
+    assert legacy_config.bilateral_mode == "standard"
 
     standard = pag.bilateral_smooth(
         source,
