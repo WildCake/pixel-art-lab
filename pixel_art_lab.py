@@ -1401,15 +1401,84 @@ HTML = r"""<!doctype html>
       return true;
     }
 
+    function numberSetting(id) {
+      const value = Number(settingEl(id).value);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function setControlDisabled(id, disabled, disabledTitle) {
+      const input = settingEl(id);
+      if (!input) return;
+      if (input.dataset.enabledTitle === undefined) input.dataset.enabledTitle = input.title || '';
+      input.disabled = disabled;
+      input.title = disabled ? disabledTitle : input.dataset.enabledTitle;
+      const label = input.closest('label');
+      if (label) label.classList.toggle('disabled', disabled);
+    }
+
     function syncConditionalControls() {
-      const enabled = settingEl('gridSnapMethod').value === 'dark-stroke';
-      const input = settingEl('gridDarkThreshold');
-      const wrapper = document.getElementById('gridDarkThresholdWrap');
-      input.disabled = !enabled;
-      input.title = enabled
-        ? 'Minimum contrast for preserving a narrow dark stroke inside a detected cell.'
-        : 'Used only by the dark-stroke bias cell reducer.';
-      if (wrapper) wrapper.classList.toggle('disabled', !enabled);
+      const dither = settingEl('dither').value;
+      const edgeMode = settingEl('edgeMode').value;
+      const gridSnap = settingEl('gridSnap').checked;
+      const gridAutoSize = settingEl('gridAutoSize').checked;
+      const gridMethod = settingEl('gridSnapMethod').value;
+      const protectedHueActive = settingEl('protectedHueRanges').value.trim().length > 0;
+      const bilateralActive = numberSetting('bilateralRadius') > 0;
+      const edgeActive = edgeMode !== 'none';
+      const orderedDither = dither === 'ordered';
+      const adaptiveDither = orderedDither && settingEl('ditherScope').value === 'adaptive';
+      const flatCleanupActive =
+        edgeActive &&
+        (numberSetting('flatRegionPaletteColors') > 0 || numberSetting('flatRegionChannelStep') > 1);
+      const mixelCleanupActive = numberSetting('mixelCleanupPasses') > 0;
+
+      setControlDisabled('ditherStrength', !orderedDither, 'Used only by ordered Bayer dithering.');
+      setControlDisabled('ditherScope', !orderedDither, 'Used only by ordered Bayer dithering.');
+      setControlDisabled('ditherErrorThreshold', !adaptiveDither, 'Used only by adaptive ordered dithering.');
+      setControlDisabled('ditherLumaRange', !adaptiveDither, 'Used only by adaptive ordered dithering.');
+      setControlDisabled(
+        'ditherEdgeThreshold',
+        !(adaptiveDither && edgeActive),
+        edgeActive ? 'Used only by adaptive ordered dithering.' : 'Requires an edge filter other than none.'
+      );
+
+      setControlDisabled('resample', gridSnap, 'Grid Snap replaces normal resizing and does not use this resample filter.');
+      setControlDisabled('gridAutoSize', !gridSnap, 'Used only when Grid Snap is enabled.');
+      setControlDisabled('gridQuantizeFirst', !gridSnap, 'Used only when Grid Snap is enabled.');
+      setControlDisabled('gridSnapMethod', !gridSnap, 'Used only when Grid Snap is enabled.');
+      setControlDisabled('gridVariant', !(gridSnap && gridAutoSize), 'Used only when Grid Snap auto size is enabled.');
+      setControlDisabled(
+        'gridDarkThreshold',
+        !(gridSnap && gridMethod === 'dark-stroke'),
+        gridSnap ? 'Used only by the dark-stroke bias cell reducer.' : 'Used only when Grid Snap is enabled.'
+      );
+
+      setControlDisabled('edgeThreshold', !edgeActive, 'Used only when an edge filter is selected.');
+      setControlDisabled('edgePaletteWeight', !edgeActive, 'Requires an edge filter other than none.');
+      setControlDisabled('edgeSharpen', !edgeActive, 'Requires an edge filter other than none.');
+      setControlDisabled('includeEdgePreview', !edgeActive, 'Requires an edge filter other than none.');
+
+      setControlDisabled('protectedHueWeight', !protectedHueActive, 'Add protected hue ranges first.');
+      setControlDisabled('protectedHueSlots', !protectedHueActive, 'Add protected hue ranges first.');
+      setControlDisabled('protectedHueMinSaturation', !protectedHueActive, 'Add protected hue ranges first.');
+      setControlDisabled(
+        'interestingColorSlots',
+        settingEl('paletteStrategy').value !== 'interesting',
+        'Used only by the interesting palette strategy.'
+      );
+
+      setControlDisabled('bilateralSigmaColor', !bilateralActive, 'Used only when Bilateral radius is above 0.');
+      setControlDisabled('bilateralSigmaSpace', !bilateralActive, 'Used only when Bilateral radius is above 0.');
+
+      setControlDisabled('flatRegionPaletteColors', !edgeActive, 'Flat cleanup requires an edge filter.');
+      setControlDisabled('flatRegionChannelStep', !edgeActive, 'Flat cleanup requires an edge filter.');
+      setControlDisabled('flatRegionMaxSaturation', !flatCleanupActive, 'Enable flat palette colors or flat channel step first.');
+      setControlDisabled('flatRegionEdgeThreshold', !flatCleanupActive, 'Enable flat palette colors or flat channel step first.');
+      setControlDisabled('flatRegionLumaRange', !flatCleanupActive, 'Enable flat palette colors or flat channel step first.');
+
+      setControlDisabled('mixelCleanupMinNeighbors', !mixelCleanupActive, 'Used only when Mixel passes is above 0.');
+      setControlDisabled('mixelCleanupDistance', !mixelCleanupActive, 'Used only when Mixel passes is above 0.');
+      setControlDisabled('mixelCleanupMaxSaturation', !mixelCleanupActive, 'Used only when Mixel passes is above 0.');
     }
 
     function collectSettings() {
@@ -1811,7 +1880,7 @@ HTML = r"""<!doctype html>
           clearTimeout(state.renderTimer);
           return;
         }
-        if (el.id === 'gridSnapMethod') syncConditionalControls();
+        syncConditionalControls();
         if (el.id === 'aspectLock' && el.checked) syncLockedDimensions(settingEl('aspectDriver').value || 'height');
         scheduleRender();
       });
@@ -1819,7 +1888,7 @@ HTML = r"""<!doctype html>
         if (el.id === 'targetWidth') syncLockedDimensions('width');
         else if (el.id === 'targetHeight') syncLockedDimensions('height');
         else if (el.id === 'aspectLock' && el.checked) syncLockedDimensions(settingEl('aspectDriver').value || 'height');
-        else if (el.id === 'gridSnapMethod') syncConditionalControls();
+        syncConditionalControls();
         scheduleRender(40);
       });
       el.addEventListener('keydown', (evt) => {
