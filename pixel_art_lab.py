@@ -785,6 +785,16 @@ HTML = r"""<!doctype html>
     input[type="range"] {
       padding: 0;
     }
+    input:disabled,
+    select:disabled {
+      opacity: .52;
+      cursor: not-allowed;
+      border-color: #30384a;
+      color: var(--faint);
+    }
+    label.disabled {
+      opacity: .68;
+    }
     button {
       background: #26314a;
       cursor: pointer;
@@ -1011,7 +1021,7 @@ HTML = r"""<!doctype html>
               <option value="center">nearest center sample</option>
             </select>
           </label>
-          <label>
+          <label id="gridDarkThresholdWrap">
             <span class="label-title">Dark threshold <span class="field-hint">stroke bias</span></span>
             <input id="gridDarkThreshold" data-setting type="number" min="0" max="255" step="1" value="38" title="Minimum contrast for preserving a narrow dark stroke inside a detected cell.">
           </label>
@@ -1391,6 +1401,17 @@ HTML = r"""<!doctype html>
       return true;
     }
 
+    function syncConditionalControls() {
+      const enabled = settingEl('gridSnapMethod').value === 'dark-stroke';
+      const input = settingEl('gridDarkThreshold');
+      const wrapper = document.getElementById('gridDarkThresholdWrap');
+      input.disabled = !enabled;
+      input.title = enabled
+        ? 'Minimum contrast for preserving a narrow dark stroke inside a detected cell.'
+        : 'Used only by the dark-stroke bias cell reducer.';
+      if (wrapper) wrapper.classList.toggle('disabled', !enabled);
+    }
+
     function collectSettings() {
       const settings = {};
       document.querySelectorAll('[data-setting]').forEach((el) => {
@@ -1445,6 +1466,7 @@ HTML = r"""<!doctype html>
         if (el.type === 'checkbox') el.checked = Boolean(settings[el.id]);
         else el.value = settings[el.id];
       });
+      syncConditionalControls();
       scheduleRender(40);
     }
 
@@ -1789,6 +1811,7 @@ HTML = r"""<!doctype html>
           clearTimeout(state.renderTimer);
           return;
         }
+        if (el.id === 'gridSnapMethod') syncConditionalControls();
         if (el.id === 'aspectLock' && el.checked) syncLockedDimensions(settingEl('aspectDriver').value || 'height');
         scheduleRender();
       });
@@ -1796,6 +1819,7 @@ HTML = r"""<!doctype html>
         if (el.id === 'targetWidth') syncLockedDimensions('width');
         else if (el.id === 'targetHeight') syncLockedDimensions('height');
         else if (el.id === 'aspectLock' && el.checked) syncLockedDimensions(settingEl('aspectDriver').value || 'height');
+        else if (el.id === 'gridSnapMethod') syncConditionalControls();
         scheduleRender(40);
       });
       el.addEventListener('keydown', (evt) => {
@@ -1872,6 +1896,7 @@ HTML = r"""<!doctype html>
 
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
+    syncConditionalControls();
     refreshPresetSelect();
   </script>
 </body>
