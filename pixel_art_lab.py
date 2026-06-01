@@ -249,7 +249,7 @@ def config_from_settings(
         autocontrast_cutoff=as_float(settings, "autocontrastCutoff", 0.0, 0.0, 30.0),
         resample=as_choice(settings, "resample", "box", ("box", "bicubic", "lanczos")),
         grid_snap_enabled=as_bool(settings, "gridSnap", False),
-        grid_snap_method=as_choice(settings, "gridSnapMethod", "dark-stroke", ("cell-mode", "center", "dark-stroke")),
+        grid_snap_method=as_choice(settings, "gridSnapMethod", "center", ("cell-mode", "center", "dark-stroke")),
         grid_snap_quantize_first=as_bool(settings, "gridQuantizeFirst", True),
         grid_snap_dark_threshold=as_float(settings, "gridDarkThreshold", 38.0, 0.0, 255.0),
         preserve_luma=as_bool(settings, "preserveLuma", False),
@@ -1035,9 +1035,9 @@ HTML = r"""<!doctype html>
           <label>
             <span class="label-title">Cell reducer <span class="field-hint">pixel pick rule</span></span>
             <select id="gridSnapMethod" data-setting title="How each detected source cell becomes one output pixel.">
-              <option value="dark-stroke" selected>dark-stroke bias</option>
+              <option value="dark-stroke">dark-stroke bias</option>
               <option value="cell-mode">cell mode</option>
-              <option value="center">nearest center sample</option>
+              <option value="center" selected>nearest center sample</option>
             </select>
           </label>
           <label id="gridDarkThresholdWrap">

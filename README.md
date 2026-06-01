@@ -60,7 +60,7 @@ For GPT/imagegen pixel art with visible mixels:
 Grid Snap: on
 auto size from detected mixels: on
 quantize before grid vote: on
-Cell reducer: dark-stroke bias
+Cell reducer: nearest center sample
 Palette strategy: projected-rare
 Colors: 64
 Dither: none or ordered Bayer

@@ -4998,8 +4998,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--grid-snap-method",
         choices=("cell-mode", "center", "dark-stroke"),
-        default="dark-stroke",
-        help="Grid snap cell reducer, default: dark-stroke.",
+        default="center",
+        help="Grid snap cell reducer, default: center.",
     )
     parser.add_argument(
         "--no-grid-quantize-first",
