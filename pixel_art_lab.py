@@ -656,6 +656,19 @@ HTML = r"""<!doctype html>
       flex: 1;
       min-width: 16px;
     }
+    .topbar button {
+      width: auto;
+      min-width: 96px;
+      min-height: 30px;
+      padding: 0 12px;
+      white-space: nowrap;
+      touch-action: none;
+    }
+    .topbar button.active {
+      background: #526386;
+      border-color: #9da7bb;
+      color: #f5f7fb;
+    }
     .status-pill {
       display: inline-flex;
       align-items: center;
@@ -1281,9 +1294,10 @@ HTML = r"""<!doctype html>
       <div class="topbar">
         <span id="status" class="status-pill status-ok">waiting for image</span>
         <span id="zoomInfo" class="metric">zoom 100%</span>
+        <button id="holdBefore" class="secondary" title="Hold to draw the imported original over the output with matching pan and zoom.">Hold Before</button>
         <span id="stats"></span>
         <span class="spacer"></span>
-        <span class="small">Wheel zooms at cursor. Drag pans. Hold Z to compare original/output.</span>
+        <span class="small">Wheel zooms at cursor. Drag pans. Hold Before or Z to compare.</span>
       </div>
       <div id="viewer" class="viewer">
         <canvas id="canvas"></canvas>
@@ -1326,6 +1340,7 @@ HTML = r"""<!doctype html>
       clientY: 0,
       hovering: false,
       zDown: false,
+      beforeDown: false,
       renderTimer: 0,
       renderSeq: 0,
       activeController: null,
@@ -1340,6 +1355,7 @@ HTML = r"""<!doctype html>
     const tipCtx = tipCanvas.getContext('2d');
     const statusEl = document.getElementById('status');
     const zoomInfo = document.getElementById('zoomInfo');
+    const holdBeforeButton = document.getElementById('holdBefore');
     const statsEl = document.getElementById('stats');
     const paletteEl = document.getElementById('palette');
     const aspectInfo = document.getElementById('aspectInfo');
@@ -1713,8 +1729,31 @@ HTML = r"""<!doctype html>
         state.width * state.zoom,
         state.height * state.zoom
       );
+      if (state.beforeDown) {
+        drawOriginalOverlay();
+      }
       zoomInfo.textContent = `zoom ${Math.round(state.zoom * 100)}%`;
       if (state.zDown && state.hovering) drawTooltip();
+    }
+
+    function drawOriginalOverlay() {
+      if (!state.originalImg || !state.width || !state.height) return;
+      const originalRect = originalCropRect();
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(
+        state.originalImg,
+        originalRect.x,
+        originalRect.y,
+        originalRect.w,
+        originalRect.h,
+        state.offsetX,
+        state.offsetY,
+        state.width * state.zoom,
+        state.height * state.zoom
+      );
+      ctx.restore();
+      ctx.imageSmoothingEnabled = false;
     }
 
     function viewerPoint(evt) {
@@ -1862,6 +1901,37 @@ HTML = r"""<!doctype html>
         state.zDown = false;
         hideTooltip();
       }
+    });
+
+    function setBeforeDown(active) {
+      if (state.beforeDown === active) return;
+      state.beforeDown = active;
+      holdBeforeButton.classList.toggle('active', active);
+      draw();
+    }
+
+    holdBeforeButton.addEventListener('pointerdown', (evt) => {
+      evt.preventDefault();
+      if (!state.outputImg || !state.originalImg) return;
+      holdBeforeButton.setPointerCapture(evt.pointerId);
+      setBeforeDown(true);
+    });
+
+    holdBeforeButton.addEventListener('pointerup', (evt) => {
+      try { holdBeforeButton.releasePointerCapture(evt.pointerId); } catch (_err) {}
+      setBeforeDown(false);
+    });
+
+    holdBeforeButton.addEventListener('pointercancel', () => {
+      setBeforeDown(false);
+    });
+
+    holdBeforeButton.addEventListener('lostpointercapture', () => {
+      setBeforeDown(false);
+    });
+
+    window.addEventListener('blur', () => {
+      setBeforeDown(false);
     });
 
     async function postJson(url, payload, signal) {
@@ -2029,6 +2099,7 @@ HTML = r"""<!doctype html>
           state.zoom = 1;
           state.offsetX = 0;
           state.offsetY = 0;
+          setBeforeDown(false);
           scheduleRender(40);
         } catch (err) {
           setStatus(err.message || String(err), 'status-error');

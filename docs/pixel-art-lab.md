@@ -17,8 +17,9 @@ If the requested port is busy, the tool searches the next available port. Use `-
 3. The output canvas re-renders after each setting change with a short debounce.
 4. Use the mouse wheel to zoom at the cursor. Zoom is clamped to 100% minimum.
 5. Drag to pan. Panning is clamped so the output cannot be moved beyond its visible bounds.
-6. Hold `Z` while hovering the output to show a split tooltip. The left side samples the imported original image at its own resolution, mapped to the same normalized region as the output; the right side is the output at the exact same logical coordinates.
-7. Export the current PNG or settings JSON from the Export panel.
+6. Hold `Hold Before` in the topbar to draw the imported original over the whole output using the same crop, pan, and zoom; release it to immediately return to the rendered result.
+7. Hold `Z` while hovering the output to show a split tooltip. The left side samples the imported original image at its own resolution, mapped to the same normalized region as the output; the right side is the output at the exact same logical coordinates.
+8. Export the current PNG or settings JSON from the Export panel.
 
 ## Output Size
 

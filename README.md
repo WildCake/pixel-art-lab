@@ -10,6 +10,7 @@ It is designed for agent/operator work: an agent starts the local service, the o
 - Palette builders that keep rare hues, accents, shadows, and outlines.
 - Output dimensions locked to the source aspect ratio, with source-height capped at 1024 px.
 - Zoom at cursor, clamped panning, and `Z` hover compare against the imported original.
+- Topbar `Hold Before` button that draws the imported original over the whole output only while pressed.
 - Local-only processing. Images are uploaded only to the local Python process.
 - Custom browser presets for tested settings.
 
@@ -45,7 +46,7 @@ If `8767` is busy, the service automatically tries the next 49 ports.
 2. Set width or height in `Output & Dither`. With `lock source aspect` enabled, the other side updates after Enter or field blur.
 3. Choose a palette strategy in `Palette Builder`.
 4. Enable `Grid Snap` in `Hidden Grid` for generated art that contains enlarged pseudo-pixels.
-5. Wheel zooms at the cursor. Drag pans. Hold `Z` over the preview to compare original and output at the same visual region.
+5. Wheel zooms at the cursor. Drag pans. Hold `Hold Before` to overlay the full imported original, or hold `Z` over the preview to compare a local original/output region.
 6. Export the PNG from `Export` or save your current controls as a JSON settings file.
 
 ## Examples
