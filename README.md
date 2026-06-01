@@ -64,6 +64,7 @@ auto size from detected mixels: on
 quantize before grid vote: off
 Cell reducer: nearest center sample
 Palette strategy: projected-rare
+Color distance: weighted RGB
 Colors: 64
 Dither: ordered Bayer if smooth backgrounds need texture, otherwise none
 Dither scope: adaptive smooth areas

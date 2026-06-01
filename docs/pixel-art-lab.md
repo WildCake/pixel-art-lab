@@ -64,6 +64,8 @@ Palette strategies from previous experiments are available:
 
 The projected strategies use the imported image as the palette donor. `projected-mass` and `projected-rare` are the two accepted baselines from the 64-color tests. The newer projected variants keep that family but redistribute palette slots by contour votes, local color islands, tonal anchor cells, or mixed frontier scoring.
 
+`Color distance` defaults to `weighted RGB` because it preserves very dark outlines more predictably. `OKLab` remains available as a manual comparison mode for perceptual hue matching, but it can choose nearby dark colors that soften black contour pixels when the palette is tight.
+
 ## Performance Rule
 
 New conversion strategies must put expensive per-pixel, per-tile, per-unique-color mapping, dithering, cleanup, and scoring work in NumPy or Numba first. If a step needs an explicit per-pixel loop, implement it as a Numba kernel before exposing it in the GUI. Python should only orchestrate small palette-slot allocation steps and keep a pure-Python fallback for missing optional dependencies. Do not add new Python pixel loops to the hot render path.

@@ -267,7 +267,7 @@ def config_from_settings(
         edge_sharpen=as_float(settings, "edgeSharpen", 0.0, 0.0, 8.0),
         edge_threshold=as_float(settings, "edgeThreshold", 0.04, 0.0, 1.0),
         palette_strategy=as_choice(settings, "paletteStrategy", "projected-rare", PALETTE_STRATEGIES),
-        color_distance=as_choice(settings, "colorDistance", "oklab", ("rgb", "oklab")),
+        color_distance=as_choice(settings, "colorDistance", "rgb", ("rgb", "oklab")),
         accent_palette_weight=as_float(settings, "accentPaletteWeight", 0.8, 0.0, 12.0),
         hue_rarity_weight=as_float(settings, "hueRarityWeight", 1.6, 0.0, 12.0),
         interesting_color_slots=as_int(settings, "interestingColorSlots", 0, 0, 1024),
@@ -1058,8 +1058,8 @@ HTML = r"""<!doctype html>
           <label>
             <span class="label-title">Color distance <span class="field-hint">palette mapping</span></span>
             <select id="colorDistance" data-setting data-tooltip="Distance metric for choosing the nearest palette color.">
+              <option value="rgb" selected>weighted RGB</option>
               <option value="oklab">OKLab</option>
-              <option value="rgb">weighted RGB</option>
             </select>
           </label>
         </div>
