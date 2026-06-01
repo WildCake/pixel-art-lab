@@ -1257,7 +1257,7 @@ HTML = r"""<!doctype html>
           </label>
           <label>
             <span class="label-title">Autocontrast <span class="field-hint">cutoff %</span></span>
-            <input id="autocontrastCutoff" data-setting type="number" min="0" max="30" step="0.5" value="0" data-tooltip="Trim extremes and stretch tonal range before conversion.">
+            <input id="autocontrastCutoff" data-setting type="number" min="0" max="30" step="0.001" value="0" data-tooltip="Trim extremes and stretch tonal range before conversion.">
           </label>
         </div>
         <div class="row">
