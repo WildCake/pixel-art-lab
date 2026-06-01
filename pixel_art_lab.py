@@ -1314,6 +1314,7 @@ HTML = r"""<!doctype html>
     const MAX_OUTPUT_HEIGHT = 1024;
     const MAX_OUTPUT_WIDTH = 4096;
     const PRESET_STORAGE_KEY = 'pixel-art-lab-custom-presets-v1';
+    let defaultSettings = null;
 
     const state = {
       imageLoaded: false,
@@ -1456,6 +1457,54 @@ HTML = r"""<!doctype html>
       return Number.isFinite(value) ? value : 0;
     }
 
+    function settingControls() {
+      return Array.from(document.querySelectorAll('[data-setting]'));
+    }
+
+    function readSettingValue(el) {
+      if (el.type === 'checkbox') return el.checked;
+      if (el.type === 'number' || el.type === 'range') {
+        const value = Number(el.value);
+        return Number.isFinite(value) ? value : 0;
+      }
+      return el.value;
+    }
+
+    function coerceSettingValue(el, value) {
+      if (el.type === 'checkbox') return Boolean(value);
+      if (el.type === 'number' || el.type === 'range') {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : readSettingValue(el);
+      }
+      return value === undefined || value === null ? '' : String(value);
+    }
+
+    function writeSettingValue(el, value) {
+      const coerced = coerceSettingValue(el, value);
+      if (el.type === 'checkbox') el.checked = coerced;
+      else el.value = coerced;
+    }
+
+    function captureDefaultSettings() {
+      const defaults = {};
+      settingControls().forEach((el) => {
+        defaults[el.id] = readSettingValue(el);
+      });
+      return defaults;
+    }
+
+    function normalizeSettings(settings = {}) {
+      const normalized = {};
+      const source = settings && typeof settings === 'object' ? settings : {};
+      settingControls().forEach((el) => {
+        const value = Object.prototype.hasOwnProperty.call(source, el.id)
+          ? source[el.id]
+          : (defaultSettings ? defaultSettings[el.id] : readSettingValue(el));
+        normalized[el.id] = coerceSettingValue(el, value);
+      });
+      return normalized;
+    }
+
     function setControlDisabled(id, disabled, disabledTitle) {
       const input = settingEl(id);
       if (!input) return;
@@ -1570,11 +1619,13 @@ HTML = r"""<!doctype html>
 
     function collectSettings() {
       const settings = {};
-      document.querySelectorAll('[data-setting]').forEach((el) => {
-        if (el.type === 'checkbox') settings[el.id] = el.checked;
-        else if (el.type === 'number' || el.type === 'range') settings[el.id] = Number(el.value);
-        else settings[el.id] = el.value;
+      settingControls().forEach((el) => {
+        settings[el.id] = readSettingValue(el);
       });
+      const ditherEl = settingEl('dither');
+      if (ditherEl && ditherEl.dataset.blockedValue) {
+        settings.dither = ditherEl.dataset.blockedValue;
+      }
       return settings;
     }
 
@@ -1617,10 +1668,11 @@ HTML = r"""<!doctype html>
 
     function applySettings(settings) {
       if (!settings || typeof settings !== 'object') return;
-      document.querySelectorAll('[data-setting]').forEach((el) => {
-        if (!Object.prototype.hasOwnProperty.call(settings, el.id)) return;
-        if (el.type === 'checkbox') el.checked = Boolean(settings[el.id]);
-        else el.value = settings[el.id];
+      const normalized = normalizeSettings(settings);
+      const ditherEl = settingEl('dither');
+      if (ditherEl) delete ditherEl.dataset.blockedValue;
+      settingControls().forEach((el) => {
+        writeSettingValue(el, normalized[el.id]);
       });
       syncConditionalControls();
       scheduleRender(40);
@@ -1633,7 +1685,7 @@ HTML = r"""<!doctype html>
         return;
       }
       const store = readPresetStore();
-      store[name] = collectSettings();
+      store[name] = normalizeSettings(collectSettings());
       try {
         writePresetStore(store);
       } catch (err) {
@@ -2067,7 +2119,7 @@ HTML = r"""<!doctype html>
     });
 
     document.getElementById('saveSettings').addEventListener('click', () => {
-      const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(collectSettings(), null, 2));
+      const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(normalizeSettings(collectSettings()), null, 2));
       const link = document.createElement('a');
       link.href = data;
       link.download = 'pixel-art-lab-settings.json';
@@ -2110,6 +2162,7 @@ HTML = r"""<!doctype html>
 
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
+    defaultSettings = captureDefaultSettings();
     syncConditionalControls();
     refreshPresetSelect();
   </script>

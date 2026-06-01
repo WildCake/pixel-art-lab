@@ -21,6 +21,10 @@ If the requested port is busy, the tool searches the next available port. Use `-
 7. Hold `Z` while hovering the output to show a split tooltip. The left side samples the imported original image at its own resolution, mapped to the same normalized region as the output; the right side is the output at the exact same logical coordinates.
 8. Export the current PNG or settings JSON from the Export panel.
 
+## Presets And Settings Export
+
+Custom presets and settings JSON exports store every `data-setting` control in the GUI, including controls that are currently disabled because another option makes them inactive. For example, when `Grid Snap` plus `quantize before grid vote` temporarily disables `Dither`, the preset still remembers the dither mode the operator selected so it returns when quantize-first is turned off. Older partial presets are normalized on load: missing keys fall back to the GUI defaults instead of inheriting whatever happened to be active before loading.
+
 ## Output Size
 
 After import, the GUI derives the output aspect ratio from the source image. The default output height is the source height capped at 1024 pixels, with width computed from the same source ratio. With `lock source aspect` enabled, editing width updates height and editing height updates width, so the conversion keeps the original image proportions instead of introducing a crop target.
