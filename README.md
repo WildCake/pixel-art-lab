@@ -4,6 +4,8 @@ Local browser tool for converting AI-generated or faux pixel art into a strict p
 
 It is designed for agent/operator work: an agent starts the local service, the operator imports one image, tunes the live preview, and exports the result.
 
+![GPT mixels converted to real pixel art comparison](docs/examples/gpt-character-generation-original-v2-v1-comparison.png)
+
 ## Features
 
 - Hidden-grid transfer for GPT/imagegen "mixel" art.
