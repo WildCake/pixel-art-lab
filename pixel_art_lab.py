@@ -239,7 +239,7 @@ def config_from_settings(
         preview_scale=1,
         dither=as_choice(settings, "dither", "none", ("ordered", "floyd", "none")),
         dither_strength=as_float(settings, "ditherStrength", 14.0, 0.0, 128.0),
-        dither_scope=as_choice(settings, "ditherScope", "global", ("global", "adaptive")),
+        dither_scope=as_choice(settings, "ditherScope", "adaptive", ("global", "adaptive")),
         dither_edge_threshold=as_float(settings, "ditherEdgeThreshold", 0.28, 0.0, 1.0),
         dither_luma_range=as_float(settings, "ditherLumaRange", 45.0, 0.0, 255.0),
         dither_error_threshold=as_float(settings, "ditherErrorThreshold", 3.0, 0.0, 255.0),
@@ -952,8 +952,8 @@ HTML = r"""<!doctype html>
           <label>
             <span class="label-title">Dither scope <span class="field-hint">where it applies</span></span>
             <select id="ditherScope" data-setting title="Adaptive mode suppresses dithering on edges and detailed objects.">
-              <option value="global" selected>global</option>
-              <option value="adaptive">adaptive smooth areas</option>
+              <option value="global">global</option>
+              <option value="adaptive" selected>adaptive smooth areas</option>
             </select>
           </label>
           <label>
