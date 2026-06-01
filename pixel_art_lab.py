@@ -430,7 +430,12 @@ def convert_in_memory(
         config.grid_snap_dark_threshold,
     )
     base = cached("stage", base_key, lambda: pag.prepare_base_image(image, config))
-    edge_mode = as_choice(settings, "edgeMode", "sobel", ("sobel", "laplacian", "highpass", "contour", "none"))
+    requested_edge_mode = as_choice(settings, "edgeMode", "sobel", ("sobel", "laplacian", "highpass", "contour", "none"))
+    edge_mode_disabled_reason = None
+    edge_mode = requested_edge_mode
+    if requested_edge_mode == "contour" and config.dither != "none":
+        edge_mode = "sobel"
+        edge_mode_disabled_reason = "ditherContour"
     edge_key = ("edge", base_key, edge_mode, config.edge_threshold)
     edge_mask = cached("stage", edge_key, lambda: build_lab_edge_mask(base, edge_mode, config.edge_threshold))
     processed_key = (
@@ -569,6 +574,8 @@ def convert_in_memory(
             "quantizedSaturationBeforeMatch": round(quantized_saturation, 4),
             "outputSaturation": round(output_saturation, 4),
             "edgeMode": edge_mode,
+            "edgeModeRequested": requested_edge_mode,
+            "edgeModeDisabledReason": edge_mode_disabled_reason,
             "paletteInput": palette_mode,
             "bilateralRadius": config.bilateral_radius,
             "bilateralMode": config.bilateral_mode if config.bilateral_radius > 0 else None,
@@ -904,6 +911,14 @@ HTML = r"""<!doctype html>
       font-size: 12px;
       line-height: 1.45;
     }
+    .section-note.notice {
+      display: none;
+      margin-top: -2px;
+      color: var(--warn);
+    }
+    .section-note.notice[data-visible="true"] {
+      display: block;
+    }
     .presets {
       display: grid;
       gap: 8px;
@@ -1206,6 +1221,7 @@ HTML = r"""<!doctype html>
             <input id="edgeThreshold" data-setting type="number" min="0" max="1" step="0.005" value="0.04" data-tooltip="Lower values mark more pixels as edges.">
           </label>
         </div>
+        <p id="edgeContourNotice" class="section-note notice">Pillow contour is unavailable while dithering is enabled. Use Sobel, Laplacian, or High-pass, or turn dithering off.</p>
         <div class="row">
           <label>
             <span class="label-title">Palette edge weight <span class="field-hint">slot boost</span></span>
@@ -1634,14 +1650,14 @@ HTML = r"""<!doctype html>
 
     function syncConditionalControls() {
       let dither = settingEl('dither').value;
-      const edgeMode = settingEl('edgeMode').value;
+      const edgeModeEl = settingEl('edgeMode');
+      let edgeMode = edgeModeEl.value;
       const gridSnap = settingEl('gridSnap').checked;
       const gridAutoSize = settingEl('gridAutoSize').checked;
       const gridQuantizeFirst = settingEl('gridQuantizeFirst').checked;
       const gridMethod = settingEl('gridSnapMethod').value;
       const protectedHueActive = settingEl('protectedHueRanges').value.trim().length > 0;
       const bilateralActive = numberSetting('bilateralRadius') > 0;
-      const edgeActive = edgeMode !== 'none';
       const ditherBlockedByGridVote = gridSnap && gridQuantizeFirst;
       const ditherEl = settingEl('dither');
       if (ditherBlockedByGridVote && dither !== 'none') {
@@ -1655,8 +1671,30 @@ HTML = r"""<!doctype html>
         }
         delete ditherEl.dataset.blockedValue;
       }
+      const contourOption = Array.from(edgeModeEl.options).find((option) => option.value === 'contour');
+      const contourBlockedByDither = dither !== 'none';
+      if (contourOption) {
+        contourOption.disabled = contourBlockedByDither;
+        contourOption.textContent = contourBlockedByDither ? 'Pillow contour (dither off only)' : 'Pillow contour';
+      }
+      if (contourBlockedByDither && edgeMode === 'contour') {
+        edgeModeEl.dataset.blockedValue = 'contour';
+        edgeModeEl.value = 'sobel';
+        edgeMode = 'sobel';
+      } else if (!contourBlockedByDither && edgeModeEl.dataset.blockedValue === 'contour') {
+        if (edgeMode === 'sobel') {
+          edgeModeEl.value = 'contour';
+          edgeMode = 'contour';
+        }
+        delete edgeModeEl.dataset.blockedValue;
+      }
+      const edgeContourNotice = document.getElementById('edgeContourNotice');
+      if (edgeContourNotice) {
+        edgeContourNotice.dataset.visible = contourBlockedByDither ? 'true' : 'false';
+      }
       const orderedDither = dither === 'ordered';
       const adaptiveDither = orderedDither && settingEl('ditherScope').value === 'adaptive';
+      const edgeActive = edgeMode !== 'none';
       const flatCleanupActive =
         edgeActive &&
         (numberSetting('flatRegionPaletteColors') > 0 || numberSetting('flatRegionChannelStep') > 1);
@@ -2152,7 +2190,10 @@ HTML = r"""<!doctype html>
         const ditherText = s.ditherDisabledReason
           ? ', dither off: grid quantize-first'
           : (s.dither && s.dither !== 'none' ? `, dither ${s.dither}` : '');
-        statsEl.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}${ditherText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
+        const edgeText = s.edgeModeDisabledReason === 'ditherContour'
+          ? ', edge Sobel: contour needs dither off'
+          : '';
+        statsEl.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}${ditherText}${edgeText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
         const variants = Array.isArray(s.gridVariants) ? s.gridVariants : [];
         settingEl('gridVariant').max = Math.max(0, variants.length - 1);
         if (s.gridAutoSize && s.gridVariant) {

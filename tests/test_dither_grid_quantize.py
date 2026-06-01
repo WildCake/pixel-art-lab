@@ -122,9 +122,39 @@ def main() -> None:
     assert floyd_raw_result["stats"]["dither"] == "floyd"
     assert floyd_raw_result["stats"]["ditherDisabledReason"] is None
 
+    contour_none, contour_none_result = render(
+        source,
+        {**settings, "gridQuantizeFirst": False, "dither": "none", "edgeMode": "contour"},
+    )
+    assert contour_none_result["stats"]["edgeMode"] == "contour"
+    assert contour_none_result["stats"]["edgeModeRequested"] == "contour"
+    assert contour_none_result["stats"]["edgeModeDisabledReason"] is None
+
+    contour_ordered, contour_ordered_result = render(
+        source,
+        {**settings, "gridQuantizeFirst": False, "dither": "ordered", "edgeMode": "contour"},
+    )
+    sobel_ordered, _sobel_ordered_result = render(
+        source,
+        {**settings, "gridQuantizeFirst": False, "dither": "ordered", "edgeMode": "sobel"},
+    )
+    assert contour_ordered_result["stats"]["edgeMode"] == "sobel"
+    assert contour_ordered_result["stats"]["edgeModeRequested"] == "contour"
+    assert contour_ordered_result["stats"]["edgeModeDisabledReason"] == "ditherContour"
+    assert changed_pixels(contour_ordered, sobel_ordered) == 0
+
+    _contour_floyd, contour_floyd_result = render(
+        source,
+        {**settings, "gridQuantizeFirst": False, "dither": "floyd", "edgeMode": "contour"},
+    )
+    assert contour_floyd_result["stats"]["edgeMode"] == "sobel"
+    assert contour_floyd_result["stats"]["edgeModeRequested"] == "contour"
+    assert contour_floyd_result["stats"]["edgeModeDisabledReason"] == "ditherContour"
+
     print(
         "dither grid quantize passed: "
-        f"ordered_delta={ordered_delta}, floyd_delta={floyd_delta}"
+        f"ordered_delta={ordered_delta}, floyd_delta={floyd_delta}, "
+        f"contour_delta={changed_pixels(contour_none, contour_ordered)}"
     )
 
 
