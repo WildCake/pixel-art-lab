@@ -379,13 +379,32 @@ def convert_in_memory(
     if config.dither != "none" and config.colors > 256:
         raise ValueError("dither modes support at most 256 colors")
 
+    grid_vote_palette_key = (
+        (
+            config.colors,
+            config.palette_strategy,
+            config.color_distance,
+            config.accent_palette_weight,
+            config.hue_rarity_weight,
+            config.interesting_color_slots,
+            config.interesting_min_saturation,
+            config.interesting_min_value,
+            config.protected_hue_ranges,
+            config.protected_hue_weight,
+            config.protected_hue_slots,
+            config.protected_hue_min_saturation,
+            config.hue_match_weight,
+        )
+        if config.grid_snap_quantize_first
+        else None
+    )
     base_key = (
         "base",
         version,
         config.target_width,
         config.target_height,
         config.resample,
-        config.colors if config.grid_snap_quantize_first else 0,
+        grid_vote_palette_key,
         config.grid_snap_enabled,
         config.grid_snap_method,
         config.grid_snap_quantize_first,
@@ -1009,7 +1028,7 @@ HTML = r"""<!doctype html>
         <label class="check" title="Estimate likely logical output sizes from source edge rhythms. Manual size still works when this is off.">
           <input id="gridAutoSize" data-setting type="checkbox" checked> auto size from detected mixels
         </label>
-        <label class="check" title="Reduce source colors before cell voting so rare intended colors are not averaged away.">
+        <label class="check" title="Reduce source colors with the active Palette Builder before cell voting so rare intended colors are not averaged away.">
           <input id="gridQuantizeFirst" data-setting type="checkbox" checked> quantize before grid vote
         </label>
         <div class="row">

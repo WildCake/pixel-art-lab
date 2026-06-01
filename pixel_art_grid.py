@@ -1691,14 +1691,29 @@ def prepare_base_image(image: Image.Image, config: PixelArtConfig) -> Image.Imag
     )
 
 
-def quantize_grid_source(image: Image.Image, colors: int) -> Image.Image:
-    if colors <= 0:
+def quantize_grid_source(image: Image.Image, config: PixelArtConfig) -> Image.Image:
+    if config.colors <= 0:
         return image.convert("RGB")
-    palette_colors = max(2, min(256, int(colors)))
-    quantized = image.convert("RGB").quantize(
-        colors=palette_colors,
-        method=Image.Quantize.MEDIANCUT,
-        dither=Image.Dither.NONE,
+
+    quantized, _palette = quantize_median_cut_rgb(
+        image.convert("RGB"),
+        max(2, int(config.colors)),
+        edge_mask=None,
+        palette_image=None,
+        palette_edge_mask=None,
+        edge_palette_weight=0.0,
+        palette_strategy=config.palette_strategy,
+        color_distance=config.color_distance,
+        accent_palette_weight=config.accent_palette_weight,
+        hue_rarity_weight=config.hue_rarity_weight,
+        interesting_color_slots=config.interesting_color_slots,
+        interesting_min_saturation=config.interesting_min_saturation,
+        interesting_min_value=config.interesting_min_value,
+        protected_hue_ranges=config.protected_hue_ranges,
+        protected_hue_weight=config.protected_hue_weight,
+        protected_hue_slots=config.protected_hue_slots,
+        protected_hue_min_saturation=config.protected_hue_min_saturation,
+        hue_match_weight=config.hue_match_weight,
     )
     return quantized.convert("RGB")
 
@@ -1815,7 +1830,7 @@ def grid_snap_image(image: Image.Image, config: PixelArtConfig) -> Image.Image:
 
     detail_array = np.asarray(source, dtype=np.uint8)
     if config.grid_snap_quantize_first:
-        vote_source = quantize_grid_source(source, config.colors)
+        vote_source = quantize_grid_source(source, config)
     else:
         vote_source = source
     vote_array = np.asarray(vote_source, dtype=np.uint8)
