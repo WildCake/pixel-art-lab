@@ -48,6 +48,10 @@ If `8767` is busy, the service automatically tries the next 49 ports.
 5. Wheel zooms at the cursor. Drag pans. Hold `Z` over the preview to compare original and output at the same visual region.
 6. Export the PNG from `Export` or save your current controls as a JSON settings file.
 
+## Examples
+
+- [Example: GPT Character Generation, Mixels](docs/examples/README.md)
+
 ## Starting Settings
 
 For GPT/imagegen pixel art with visible mixels:
