@@ -728,6 +728,24 @@ HTML = r"""<!doctype html>
       margin-top: 3px;
       padding: 0 2px;
     }
+    #uiTooltip {
+      position: fixed;
+      z-index: 40;
+      display: none;
+      max-width: 320px;
+      padding: 9px 11px;
+      pointer-events: none;
+      background: #121827;
+      border: 1px solid #6d7590;
+      border-radius: 6px;
+      color: #eef3ff;
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 650;
+    }
+    #uiTooltip[data-visible="true"] {
+      display: block;
+    }
     .brand {
       padding: 2px 2px 14px;
       border-bottom: 1px solid var(--line);
@@ -940,12 +958,12 @@ HTML = r"""<!doctype html>
         <p class="section-note">Import one image. Every control updates the rendered output after a short debounce.</p>
         <label>
           <span class="label-title">Source image <span class="field-hint">PNG, JPG, or WebP</span></span>
-          <input id="file" type="file" accept="image/*" title="Load the source image for this local session.">
+          <input id="file" type="file" accept="image/*" data-tooltip="Load the source image for this local session.">
         </label>
         <div id="inputInfo" class="small">No image loaded yet.</div>
         <div class="button-row">
-          <button id="resetZoom" class="secondary" title="Return the preview to 100% zoom and recenter it.">Reset view</button>
-          <button id="saveSettings" class="secondary" title="Export all current controls as a JSON preset file.">Save settings</button>
+          <button id="resetZoom" class="secondary" data-tooltip="Return the preview to 100% zoom and recenter it.">Reset view</button>
+          <button id="saveSettings" class="secondary" data-tooltip="Export all current controls as a JSON preset file.">Save settings</button>
         </div>
       </fieldset>
 
@@ -955,16 +973,16 @@ HTML = r"""<!doctype html>
         <div class="presets">
           <label>
             <span class="label-title">Preset <span class="field-hint">stored in this browser</span></span>
-            <select id="customPresetSelect" title="Choose a preset saved in this browser."></select>
+            <select id="customPresetSelect" data-tooltip="Choose a preset saved in this browser."></select>
           </label>
           <label>
             <span class="label-title">Name <span class="field-hint">required to save</span></span>
-            <input id="presetName" type="text" placeholder="preset name" title="Name for saving or replacing a custom preset.">
+            <input id="presetName" type="text" placeholder="preset name" data-tooltip="Name for saving or replacing a custom preset.">
           </label>
           <div class="preset-actions">
-            <button id="loadPreset" title="Apply the selected preset to all controls.">Load</button>
-            <button id="savePreset" title="Save current controls under the typed name.">Save</button>
-            <button id="deletePreset" title="Delete the selected custom preset from this browser.">Delete</button>
+            <button id="loadPreset" data-tooltip="Apply the selected preset to all controls.">Load</button>
+            <button id="savePreset" data-tooltip="Save current controls under the typed name.">Save</button>
+            <button id="deletePreset" data-tooltip="Delete the selected custom preset from this browser.">Delete</button>
           </div>
         </div>
       </fieldset>
@@ -976,25 +994,25 @@ HTML = r"""<!doctype html>
         <div class="row">
           <label>
             <span class="label-title">Width <span class="field-hint">output pixels</span></span>
-            <input id="targetWidth" data-setting type="number" min="16" max="4096" value="1024" title="Logical output width. Press Enter or leave the field to render.">
+            <input id="targetWidth" data-setting type="number" min="16" max="4096" value="1024" data-tooltip="Logical output width. Press Enter or leave the field to render.">
           </label>
           <label>
             <span class="label-title">Height <span class="field-hint">max 1024</span></span>
-            <input id="targetHeight" data-setting type="number" min="16" max="1024" value="576" title="Logical output height. Source-ratio default is capped at 1024.">
+            <input id="targetHeight" data-setting type="number" min="16" max="1024" value="576" data-tooltip="Logical output height. Source-ratio default is capped at 1024.">
           </label>
         </div>
-        <label class="check" title="Keep output proportions equal to the imported source image.">
+        <label class="check" data-tooltip="Keep output proportions equal to the imported source image.">
           <input id="aspectLock" data-setting type="checkbox" checked> lock source aspect
         </label>
         <div id="aspectInfo" class="small">Output size will use the source image ratio after import.</div>
         <div class="row">
           <label>
             <span class="label-title">Colors <span class="field-hint">palette cap</span></span>
-            <input id="colors" data-setting type="number" min="2" max="1024" value="64" title="Maximum colors in the output palette.">
+            <input id="colors" data-setting type="number" min="2" max="1024" value="64" data-tooltip="Maximum colors in the output palette.">
           </label>
           <label>
             <span class="label-title">Dither <span class="field-hint">use sparingly</span></span>
-            <select id="dither" data-setting title="Adds controlled texture for gradients after palette mapping.">
+            <select id="dither" data-setting data-tooltip="Adds controlled texture for gradients after palette mapping.">
               <option value="none">none</option>
               <option value="ordered">ordered Bayer</option>
               <option value="floyd">Floyd-Steinberg</option>
@@ -1003,35 +1021,35 @@ HTML = r"""<!doctype html>
         </div>
         <label>
           <span class="label-title">Dither strength <span class="field-hint">0-64</span></span>
-          <input id="ditherStrength" data-setting type="range" min="0" max="64" step="1" value="14" title="Higher values make dithering more visible.">
+          <input id="ditherStrength" data-setting type="range" min="0" max="64" step="1" value="14" data-tooltip="Higher values make dithering more visible.">
         </label>
         <div class="row">
           <label>
             <span class="label-title">Dither scope <span class="field-hint">where it applies</span></span>
-            <select id="ditherScope" data-setting title="Adaptive mode suppresses dithering on edges and detailed objects.">
+            <select id="ditherScope" data-setting data-tooltip="Adaptive mode suppresses dithering on edges and detailed objects.">
               <option value="global">global</option>
               <option value="adaptive" selected>adaptive smooth areas</option>
             </select>
           </label>
           <label>
             <span class="label-title">Error min <span class="field-hint">skip tiny errors</span></span>
-            <input id="ditherErrorThreshold" data-setting type="number" min="0" max="255" step="0.5" value="3" title="Minimum nearest-palette error before adaptive dithering is allowed.">
+            <input id="ditherErrorThreshold" data-setting type="number" min="0" max="255" step="0.5" value="3" data-tooltip="Minimum nearest-palette error before adaptive dithering is allowed.">
           </label>
         </div>
         <div class="row">
           <label>
             <span class="label-title">Edge max <span class="field-hint">protect details</span></span>
-            <input id="ditherEdgeThreshold" data-setting type="number" min="0" max="1" step="0.01" value="0.28" title="Adaptive dithering is blocked above this edge strength.">
+            <input id="ditherEdgeThreshold" data-setting type="number" min="0" max="1" step="0.01" value="0.28" data-tooltip="Adaptive dithering is blocked above this edge strength.">
           </label>
           <label>
             <span class="label-title">Luma range <span class="field-hint">smoothness gate</span></span>
-            <input id="ditherLumaRange" data-setting type="number" min="0" max="255" step="1" value="45" title="Adaptive dithering is allowed only in areas with local brightness variation under this value.">
+            <input id="ditherLumaRange" data-setting type="number" min="0" max="255" step="1" value="45" data-tooltip="Adaptive dithering is allowed only in areas with local brightness variation under this value.">
           </label>
         </div>
         <div class="row">
           <label>
             <span class="label-title">Resample <span class="field-hint">resize filter</span></span>
-            <select id="resample" data-setting title="Resize filter used before palette conversion when Grid Snap is off.">
+            <select id="resample" data-setting data-tooltip="Resize filter used before palette conversion when Grid Snap is off.">
               <option value="box">box</option>
               <option value="bicubic">bicubic</option>
               <option value="lanczos">lanczos</option>
@@ -1039,7 +1057,7 @@ HTML = r"""<!doctype html>
           </label>
           <label>
             <span class="label-title">Color distance <span class="field-hint">palette mapping</span></span>
-            <select id="colorDistance" data-setting title="Distance metric for choosing the nearest palette color.">
+            <select id="colorDistance" data-setting data-tooltip="Distance metric for choosing the nearest palette color.">
               <option value="oklab">OKLab</option>
               <option value="rgb">weighted RGB</option>
             </select>
@@ -1050,19 +1068,19 @@ HTML = r"""<!doctype html>
       <fieldset>
         <legend>Hidden Grid</legend>
         <p class="section-note">Use when the source is enlarged AI pixel art. The detector estimates the source's pseudo-pixel cells and transfers them without averaging.</p>
-        <label class="check" title="Replace normal resizing with hidden-grid transfer for generated mixel art.">
+        <label class="check" data-tooltip="Replace normal resizing with hidden-grid transfer for generated mixel art.">
           <input id="gridSnap" data-setting type="checkbox"> Grid Snap
         </label>
-        <label class="check" title="Estimate likely logical output sizes from source edge rhythms. Manual size still works when this is off.">
+        <label class="check" data-tooltip="Estimate likely logical output sizes from source edge rhythms. Manual size still works when this is off.">
           <input id="gridAutoSize" data-setting type="checkbox" checked> auto size from detected mixels
         </label>
-        <label class="check" title="Reduce source colors with the active Palette Builder before cell voting so rare intended colors are not averaged away.">
+        <label class="check" data-tooltip="Reduce source colors with the active Palette Builder before cell voting so rare intended colors are not averaged away.">
           <input id="gridQuantizeFirst" data-setting type="checkbox"> quantize before grid vote
         </label>
         <div class="row">
           <label>
             <span class="label-title">Cell reducer <span class="field-hint">pixel pick rule</span></span>
-            <select id="gridSnapMethod" data-setting title="How each detected source cell becomes one output pixel.">
+            <select id="gridSnapMethod" data-setting data-tooltip="How each detected source cell becomes one output pixel.">
               <option value="dark-stroke">dark-stroke bias</option>
               <option value="cell-mode">cell mode</option>
               <option value="center" selected>nearest center sample</option>
@@ -1070,12 +1088,12 @@ HTML = r"""<!doctype html>
           </label>
           <label id="gridDarkThresholdWrap">
             <span class="label-title">Dark threshold <span class="field-hint">stroke bias</span></span>
-            <input id="gridDarkThreshold" data-setting type="number" min="0" max="255" step="1" value="38" title="Minimum contrast for preserving a narrow dark stroke inside a detected cell.">
+            <input id="gridDarkThreshold" data-setting type="number" min="0" max="255" step="1" value="38" data-tooltip="Minimum contrast for preserving a narrow dark stroke inside a detected cell.">
           </label>
         </div>
         <label>
           <span class="label-title">Auto variant <span class="field-hint">candidate grid</span></span>
-          <input id="gridVariant" data-setting type="range" min="0" max="8" step="1" value="0" title="Choose between detector candidates after auto-size render.">
+          <input id="gridVariant" data-setting type="range" min="0" max="8" step="1" value="0" data-tooltip="Choose between detector candidates after auto-size render.">
         </label>
         <div id="gridInfo" class="small">Auto grid size is optional; manual Width/Height still works when it is off.</div>
       </fieldset>
@@ -1085,7 +1103,7 @@ HTML = r"""<!doctype html>
         <p class="section-note">Choose how source colors are allocated before the image is mapped into the final palette.</p>
         <label>
           <span class="label-title">Strategy <span class="field-hint">slot allocation</span></span>
-          <select id="paletteStrategy" data-setting title="Palette extraction strategy. Projected modes choose source colors and remap the target into them.">
+          <select id="paletteStrategy" data-setting data-tooltip="Palette extraction strategy. Projected modes choose source colors and remap the target into them.">
             <option value="median-cut">median-cut</option>
             <option value="interesting">interesting</option>
             <option value="hue-mass">hue-mass</option>
@@ -1102,7 +1120,7 @@ HTML = r"""<!doctype html>
         </label>
         <label>
           <span class="label-title">Palette input <span class="field-hint">color donor</span></span>
-          <select id="paletteInput" data-setting title="Which processed image supplies colors for palette extraction.">
+          <select id="paletteInput" data-setting data-tooltip="Which processed image supplies colors for palette extraction.">
             <option value="prepared" selected>prepared target</option>
             <option value="original">original resized</option>
             <option value="graded">graded target</option>
@@ -1111,47 +1129,47 @@ HTML = r"""<!doctype html>
         <div class="row">
           <label>
             <span class="label-title">Accent weight <span class="field-hint">rare colors</span></span>
-            <input id="accentPaletteWeight" data-setting type="number" min="0" max="12" step="0.1" value="0.8" title="Extra palette pressure for saturated or visually interesting colors.">
+            <input id="accentPaletteWeight" data-setting type="number" min="0" max="12" step="0.1" value="0.8" data-tooltip="Extra palette pressure for saturated or visually interesting colors.">
           </label>
           <label>
             <span class="label-title">Hue rarity <span class="field-hint">unusual hues</span></span>
-            <input id="hueRarityWeight" data-setting type="number" min="0" max="12" step="0.1" value="1.6" title="Extra palette pressure for hues that occupy little image area.">
+            <input id="hueRarityWeight" data-setting type="number" min="0" max="12" step="0.1" value="1.6" data-tooltip="Extra palette pressure for hues that occupy little image area.">
           </label>
         </div>
         <label>
           <span class="label-title">Hue match weight <span class="field-hint">mapping bias</span></span>
-          <input id="hueMatchWeight" data-setting type="number" min="0" max="12" step="0.05" value="0.35" title="Bias nearest-color mapping toward colors with a closer hue.">
+          <input id="hueMatchWeight" data-setting type="number" min="0" max="12" step="0.05" value="0.35" data-tooltip="Bias nearest-color mapping toward colors with a closer hue.">
         </label>
         <div class="row">
           <label>
             <span class="label-title">Interesting slots <span class="field-hint">reserved colors</span></span>
-            <input id="interestingColorSlots" data-setting type="number" min="0" max="1024" value="0" title="Palette slots reserved for colorful rare pixels before mass allocation.">
+            <input id="interestingColorSlots" data-setting type="number" min="0" max="1024" value="0" data-tooltip="Palette slots reserved for colorful rare pixels before mass allocation.">
           </label>
           <label>
             <span class="label-title">Min saturation <span class="field-hint">slot gate</span></span>
-            <input id="interestingMinSaturation" data-setting type="number" min="0" max="1" step="0.01" value="0.07" title="Minimum saturation for interesting-color reservation.">
+            <input id="interestingMinSaturation" data-setting type="number" min="0" max="1" step="0.01" value="0.07" data-tooltip="Minimum saturation for interesting-color reservation.">
           </label>
         </div>
         <label>
           <span class="label-title">Min value <span class="field-hint">slot gate</span></span>
-          <input id="interestingMinValue" data-setting type="number" min="0" max="1" step="0.01" value="0.05" title="Minimum value/brightness for interesting-color reservation.">
+          <input id="interestingMinValue" data-setting type="number" min="0" max="1" step="0.01" value="0.05" data-tooltip="Minimum value/brightness for interesting-color reservation.">
         </label>
         <label>
           <span class="label-title">Protected hue ranges <span class="field-hint">example 250-330</span></span>
-          <input id="protectedHueRanges" data-setting type="text" value="" placeholder="250-330,330-20" title="Comma-separated hue ranges to protect, including wraparound ranges.">
+          <input id="protectedHueRanges" data-setting type="text" value="" placeholder="250-330,330-20" data-tooltip="Comma-separated hue ranges to protect, including wraparound ranges.">
         </label>
         <div class="row3">
           <label>
             <span class="label-title">Hue weight <span class="field-hint">boost</span></span>
-            <input id="protectedHueWeight" data-setting type="number" min="0" max="20" step="0.1" value="0" title="Weight boost for pixels inside protected hue ranges.">
+            <input id="protectedHueWeight" data-setting type="number" min="0" max="20" step="0.1" value="0" data-tooltip="Weight boost for pixels inside protected hue ranges.">
           </label>
           <label>
             <span class="label-title">Hue slots <span class="field-hint">reserve</span></span>
-            <input id="protectedHueSlots" data-setting type="number" min="0" max="1024" value="0" title="Palette slots reserved for protected hue ranges.">
+            <input id="protectedHueSlots" data-setting type="number" min="0" max="1024" value="0" data-tooltip="Palette slots reserved for protected hue ranges.">
           </label>
           <label>
             <span class="label-title">Hue min sat <span class="field-hint">gate</span></span>
-            <input id="protectedHueMinSaturation" data-setting type="number" min="0" max="1" step="0.01" value="0.08" title="Minimum saturation for protected hue reservation.">
+            <input id="protectedHueMinSaturation" data-setting type="number" min="0" max="1" step="0.01" value="0.08" data-tooltip="Minimum saturation for protected hue reservation.">
           </label>
         </div>
       </fieldset>
@@ -1162,7 +1180,7 @@ HTML = r"""<!doctype html>
         <div class="row">
           <label>
             <span class="label-title">Edge filter <span class="field-hint">mask source</span></span>
-            <select id="edgeMode" data-setting title="Filter used to detect contours for palette weighting and detail protection.">
+            <select id="edgeMode" data-setting data-tooltip="Filter used to detect contours for palette weighting and detail protection.">
               <option value="sobel" selected>Sobel</option>
               <option value="laplacian">Laplacian</option>
               <option value="highpass">High-pass</option>
@@ -1172,20 +1190,20 @@ HTML = r"""<!doctype html>
           </label>
           <label>
             <span class="label-title">Threshold <span class="field-hint">mask cutoff</span></span>
-            <input id="edgeThreshold" data-setting type="number" min="0" max="1" step="0.005" value="0.04" title="Lower values mark more pixels as edges.">
+            <input id="edgeThreshold" data-setting type="number" min="0" max="1" step="0.005" value="0.04" data-tooltip="Lower values mark more pixels as edges.">
           </label>
         </div>
         <div class="row">
           <label>
             <span class="label-title">Palette edge weight <span class="field-hint">slot boost</span></span>
-            <input id="edgePaletteWeight" data-setting type="number" min="0" max="12" step="0.05" value="0.45" title="Extra palette weight for edge pixels.">
+            <input id="edgePaletteWeight" data-setting type="number" min="0" max="12" step="0.05" value="0.45" data-tooltip="Extra palette weight for edge pixels.">
           </label>
           <label>
             <span class="label-title">Edge sharpen <span class="field-hint">contour contrast</span></span>
-            <input id="edgeSharpen" data-setting type="number" min="0" max="8" step="0.05" value="0" title="Selective sharpening on detected contours before palette mapping.">
+            <input id="edgeSharpen" data-setting type="number" min="0" max="8" step="0.05" value="0" data-tooltip="Selective sharpening on detected contours before palette mapping.">
           </label>
         </div>
-        <label class="check" title="Return the edge mask in the render response for debugging.">
+        <label class="check" data-tooltip="Return the edge mask in the render response for debugging.">
           <input id="includeEdgePreview" data-setting type="checkbox"> include edge mask in response
         </label>
       </fieldset>
@@ -1196,41 +1214,41 @@ HTML = r"""<!doctype html>
         <div class="row">
           <label>
             <span class="label-title">Saturation <span class="field-hint">color gain</span></span>
-            <input id="saturation" data-setting type="number" min="0" max="8" step="0.05" value="1" title="Color multiplier before palette extraction.">
+            <input id="saturation" data-setting type="number" min="0" max="8" step="0.05" value="1" data-tooltip="Color multiplier before palette extraction.">
           </label>
           <label>
             <span class="label-title">Contrast <span class="field-hint">tone gain</span></span>
-            <input id="contrast" data-setting type="number" min="0" max="8" step="0.05" value="1" title="Contrast multiplier before palette extraction.">
+            <input id="contrast" data-setting type="number" min="0" max="8" step="0.05" value="1" data-tooltip="Contrast multiplier before palette extraction.">
           </label>
         </div>
         <div class="row">
           <label>
             <span class="label-title">Sharpness <span class="field-hint">unsharp %</span></span>
-            <input id="sharpness" data-setting type="number" min="0" max="500" step="5" value="0" title="Unsharp-mask amount before quantization.">
+            <input id="sharpness" data-setting type="number" min="0" max="500" step="5" value="0" data-tooltip="Unsharp-mask amount before quantization.">
           </label>
           <label>
             <span class="label-title">Autocontrast <span class="field-hint">cutoff %</span></span>
-            <input id="autocontrastCutoff" data-setting type="number" min="0" max="30" step="0.5" value="0" title="Trim extremes and stretch tonal range before conversion.">
+            <input id="autocontrastCutoff" data-setting type="number" min="0" max="30" step="0.5" value="0" data-tooltip="Trim extremes and stretch tonal range before conversion.">
           </label>
         </div>
         <div class="row3">
           <label>
             <span class="label-title">Bilateral radius <span class="field-hint">smooth</span></span>
-            <input id="bilateralRadius" data-setting type="number" min="0" max="8" value="0" title="Edge-preserving smoothing radius. It does not cut palette directly, but can remove rare source colors before quantization.">
+            <input id="bilateralRadius" data-setting type="number" min="0" max="8" value="0" data-tooltip="Edge-preserving smoothing radius. It does not cut palette directly, but can remove rare source colors before quantization.">
           </label>
           <label>
             <span class="label-title">Sigma color <span class="field-hint">range</span></span>
-            <input id="bilateralSigmaColor" data-setting type="number" min="1" max="128" step="1" value="18" title="How far colors may differ and still be smoothed together.">
+            <input id="bilateralSigmaColor" data-setting type="number" min="1" max="128" step="1" value="18" data-tooltip="How far colors may differ and still be smoothed together.">
           </label>
           <label>
             <span class="label-title">Sigma space <span class="field-hint">spread</span></span>
-            <input id="bilateralSigmaSpace" data-setting type="number" min="0.1" max="16" step="0.1" value="1.4" title="Spatial falloff for bilateral smoothing.">
+            <input id="bilateralSigmaSpace" data-setting type="number" min="0.1" max="16" step="0.1" value="1.4" data-tooltip="Spatial falloff for bilateral smoothing.">
           </label>
         </div>
-        <label class="check" title="Match the output's mean brightness back toward the resized source.">
+        <label class="check" data-tooltip="Match the output's mean brightness back toward the resized source.">
           <input id="preserveLuma" data-setting type="checkbox"> preserve luma
         </label>
-        <label class="check" title="Match output saturation back toward the resized source to reduce washed-out accents.">
+        <label class="check" data-tooltip="Match output saturation back toward the resized source to reduce washed-out accents.">
           <input id="preserveSaturation" data-setting type="checkbox"> preserve saturation
         </label>
       </fieldset>
@@ -1241,51 +1259,51 @@ HTML = r"""<!doctype html>
         <div class="row">
           <label>
             <span class="label-title">Flat palette colors <span class="field-hint">0 off</span></span>
-            <input id="flatRegionPaletteColors" data-setting type="number" min="0" max="1024" value="0" title="Map low-detail non-edge areas to a small local palette.">
+            <input id="flatRegionPaletteColors" data-setting type="number" min="0" max="1024" value="0" data-tooltip="Map low-detail non-edge areas to a small local palette.">
           </label>
           <label>
             <span class="label-title">Flat channel step <span class="field-hint">0 off</span></span>
-            <input id="flatRegionChannelStep" data-setting type="number" min="0" max="255" value="0" title="Snap low-detail channels to fixed RGB steps.">
+            <input id="flatRegionChannelStep" data-setting type="number" min="0" max="255" value="0" data-tooltip="Snap low-detail channels to fixed RGB steps.">
           </label>
         </div>
         <div class="row">
           <label>
             <span class="label-title">Flat max sat <span class="field-hint">protect accents</span></span>
-            <input id="flatRegionMaxSaturation" data-setting type="number" min="0" max="1" step="0.01" value="0.35" title="Only low-saturation areas below this value can be flattened.">
+            <input id="flatRegionMaxSaturation" data-setting type="number" min="0" max="1" step="0.01" value="0.35" data-tooltip="Only low-saturation areas below this value can be flattened.">
           </label>
           <label>
             <span class="label-title">Flat edge max <span class="field-hint">protect lines</span></span>
-            <input id="flatRegionEdgeThreshold" data-setting type="number" min="0" max="1" step="0.01" value="0.18" title="Flattening is blocked above this edge strength.">
+            <input id="flatRegionEdgeThreshold" data-setting type="number" min="0" max="1" step="0.01" value="0.18" data-tooltip="Flattening is blocked above this edge strength.">
           </label>
         </div>
         <label>
           <span class="label-title">Flat luma range <span class="field-hint">smoothness</span></span>
-          <input id="flatRegionLumaRange" data-setting type="number" min="0" max="255" step="1" value="10" title="Maximum local brightness range eligible for flat-region cleanup.">
+          <input id="flatRegionLumaRange" data-setting type="number" min="0" max="255" step="1" value="10" data-tooltip="Maximum local brightness range eligible for flat-region cleanup.">
         </label>
         <div class="row3">
           <label>
             <span class="label-title">Mixel passes <span class="field-hint">0 off</span></span>
-            <input id="mixelCleanupPasses" data-setting type="number" min="0" max="8" value="0" title="Number of isolated-pixel cleanup passes.">
+            <input id="mixelCleanupPasses" data-setting type="number" min="0" max="8" value="0" data-tooltip="Number of isolated-pixel cleanup passes.">
           </label>
           <label>
             <span class="label-title">Neighbors <span class="field-hint">3x3 vote</span></span>
-            <input id="mixelCleanupMinNeighbors" data-setting type="number" min="1" max="9" value="3" title="Minimum matching neighbors needed before replacing an isolated pixel.">
+            <input id="mixelCleanupMinNeighbors" data-setting type="number" min="1" max="9" value="3" data-tooltip="Minimum matching neighbors needed before replacing an isolated pixel.">
           </label>
           <label>
             <span class="label-title">Distance <span class="field-hint">near color</span></span>
-            <input id="mixelCleanupDistance" data-setting type="number" min="0" max="255" step="1" value="18" title="Maximum color distance allowed for mixel replacement.">
+            <input id="mixelCleanupDistance" data-setting type="number" min="0" max="255" step="1" value="18" data-tooltip="Maximum color distance allowed for mixel replacement.">
           </label>
         </div>
         <label>
           <span class="label-title">Mixel max sat <span class="field-hint">protect accents</span></span>
-          <input id="mixelCleanupMaxSaturation" data-setting type="number" min="0" max="1" step="0.01" value="0.45" title="Pixels above this saturation are protected from mixel cleanup.">
+          <input id="mixelCleanupMaxSaturation" data-setting type="number" min="0" max="1" step="0.01" value="0.45" data-tooltip="Pixels above this saturation are protected from mixel cleanup.">
         </label>
       </fieldset>
 
       <fieldset>
         <legend>Export</legend>
         <p class="section-note">Save the current render. The swatches show the actual palette returned by the latest output.</p>
-        <button id="savePng" title="Download the latest rendered output as a PNG.">Save current PNG</button>
+        <button id="savePng" data-tooltip="Download the latest rendered output as a PNG.">Save current PNG</button>
         <div id="palette" class="palette"></div>
       </fieldset>
     </aside>
@@ -1294,7 +1312,7 @@ HTML = r"""<!doctype html>
       <div class="topbar">
         <span id="status" class="status-pill status-ok">waiting for image</span>
         <span id="zoomInfo" class="metric">zoom 100%</span>
-        <button id="holdBefore" class="secondary" title="Hold to draw the imported original over the output with matching pan and zoom.">Hold Before</button>
+        <button id="holdBefore" class="secondary" data-tooltip="Hold to draw the imported original over the output with matching pan and zoom.">Hold Before</button>
         <span id="stats"></span>
         <span class="spacer"></span>
         <span class="small">Wheel zooms at cursor. Drag pans. Hold Before or Z to compare.</span>
@@ -1308,6 +1326,7 @@ HTML = r"""<!doctype html>
     <canvas id="tipCanvas" width="250" height="250"></canvas>
     <div class="label"><span>original full-res</span><span>output</span></div>
   </div>
+  <div id="uiTooltip" role="tooltip" aria-hidden="true"></div>
 
   <script>
     const MIN_OUTPUT_SIZE = 16;
@@ -1352,6 +1371,7 @@ HTML = r"""<!doctype html>
     const ctx = canvas.getContext('2d');
     const viewer = document.getElementById('viewer');
     const tooltip = document.getElementById('tooltip');
+    const uiTooltip = document.getElementById('uiTooltip');
     const tipCanvas = document.getElementById('tipCanvas');
     const tipCtx = tipCanvas.getContext('2d');
     const statusEl = document.getElementById('status');
@@ -1363,6 +1383,7 @@ HTML = r"""<!doctype html>
     const gridInfo = document.getElementById('gridInfo');
     const customPresetSelect = document.getElementById('customPresetSelect');
     const presetNameInput = document.getElementById('presetName');
+    let activeUiTooltipTarget = null;
 
     function setStatus(text, cls) {
       statusEl.className = `status-pill ${cls || ''}`;
@@ -1508,12 +1529,84 @@ HTML = r"""<!doctype html>
     function setControlDisabled(id, disabled, disabledTitle) {
       const input = settingEl(id);
       if (!input) return;
-      if (input.dataset.enabledTitle === undefined) input.dataset.enabledTitle = input.title || '';
+      if (input.dataset.enabledTooltip === undefined) input.dataset.enabledTooltip = input.dataset.tooltip || '';
       input.disabled = disabled;
-      input.title = disabled ? disabledTitle : input.dataset.enabledTitle;
+      if (disabled) input.dataset.tooltip = disabledTitle;
+      else if (input.dataset.enabledTooltip) input.dataset.tooltip = input.dataset.enabledTooltip;
+      else delete input.dataset.tooltip;
       const label = input.closest('label');
-      if (label) label.classList.toggle('disabled', disabled);
+      if (label) {
+        if (label.dataset.enabledTooltip === undefined) label.dataset.enabledTooltip = label.dataset.tooltip || '';
+        if (disabled) label.dataset.tooltip = disabledTitle;
+        else if (label.dataset.enabledTooltip) label.dataset.tooltip = label.dataset.enabledTooltip;
+        else delete label.dataset.tooltip;
+        label.classList.toggle('disabled', disabled);
+      }
+      if (activeUiTooltipTarget === input || activeUiTooltipTarget === label) hideUiTooltip();
     }
+
+    function tooltipTargetFrom(node) {
+      return node instanceof Element ? node.closest('[data-tooltip]') : null;
+    }
+
+    function showUiTooltip(target, clientX, clientY) {
+      const text = target && target.dataset ? target.dataset.tooltip : '';
+      if (!text) {
+        hideUiTooltip();
+        return;
+      }
+      activeUiTooltipTarget = target;
+      uiTooltip.textContent = text;
+      uiTooltip.setAttribute('data-visible', 'true');
+      uiTooltip.setAttribute('aria-hidden', 'false');
+      positionUiTooltip(clientX, clientY);
+    }
+
+    function positionUiTooltip(clientX, clientY) {
+      if (!activeUiTooltipTarget) return;
+      const pad = 12;
+      const gap = 14;
+      let left = clientX + gap;
+      let top = clientY + gap;
+      const rect = uiTooltip.getBoundingClientRect();
+      if (left + rect.width + pad > window.innerWidth) left = clientX - rect.width - gap;
+      if (top + rect.height + pad > window.innerHeight) top = clientY - rect.height - gap;
+      left = Math.max(pad, Math.min(window.innerWidth - rect.width - pad, left));
+      top = Math.max(pad, Math.min(window.innerHeight - rect.height - pad, top));
+      uiTooltip.style.left = `${left}px`;
+      uiTooltip.style.top = `${top}px`;
+    }
+
+    function hideUiTooltip() {
+      activeUiTooltipTarget = null;
+      uiTooltip.removeAttribute('data-visible');
+      uiTooltip.setAttribute('aria-hidden', 'true');
+    }
+
+    document.addEventListener('pointerover', (evt) => {
+      const target = tooltipTargetFrom(evt.target);
+      if (target) showUiTooltip(target, evt.clientX, evt.clientY);
+    });
+
+    document.addEventListener('pointermove', (evt) => {
+      if (activeUiTooltipTarget) positionUiTooltip(evt.clientX, evt.clientY);
+    });
+
+    document.addEventListener('pointerout', (evt) => {
+      if (!activeUiTooltipTarget) return;
+      const relatedTarget = evt.relatedTarget instanceof Element ? evt.relatedTarget : null;
+      if (!relatedTarget || !activeUiTooltipTarget.contains(relatedTarget)) hideUiTooltip();
+    });
+
+    document.addEventListener('focusin', (evt) => {
+      const target = tooltipTargetFrom(evt.target);
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      showUiTooltip(target, rect.left + rect.width / 2, rect.bottom);
+    });
+
+    document.addEventListener('focusout', hideUiTooltip);
+    document.addEventListener('scroll', hideUiTooltip, true);
 
     function syncConditionalControls() {
       let dither = settingEl('dither').value;
@@ -1836,6 +1929,7 @@ HTML = r"""<!doctype html>
 
     canvas.addEventListener('pointerdown', (evt) => {
       if (!state.outputImg) return;
+      hideUiTooltip();
       state.dragging = true;
       viewer.classList.add('dragging');
       state.dragStartX = evt.clientX;
@@ -1984,6 +2078,7 @@ HTML = r"""<!doctype html>
 
     window.addEventListener('blur', () => {
       setBeforeDown(false);
+      hideUiTooltip();
     });
 
     async function postJson(url, payload, signal) {
@@ -2064,7 +2159,7 @@ HTML = r"""<!doctype html>
       palette.forEach((color) => {
         const div = document.createElement('div');
         div.className = 'swatch';
-        div.title = color;
+        div.dataset.tooltip = color;
         div.style.background = color;
         paletteEl.appendChild(div);
       });

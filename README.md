@@ -11,6 +11,7 @@ It is designed for agent/operator work: an agent starts the local service, the o
 - Output dimensions locked to the source aspect ratio, with source-height capped at 1024 px.
 - Zoom at cursor, clamped panning, and `Z` hover compare against the imported original.
 - Topbar `Hold Before` button that draws the imported original over the whole output only while pressed.
+- Designer-styled local tooltips for controls and palette swatches; browser-native `title` tooltips are not used.
 - Local-only processing. Images are uploaded only to the local Python process.
 - Custom browser presets for every conversion setting, including disabled conditional controls.
 

@@ -25,6 +25,10 @@ If the requested port is busy, the tool searches the next available port. Use `-
 
 Custom presets and settings JSON exports store every `data-setting` control in the GUI, including controls that are currently disabled because another option makes them inactive. For example, when `Grid Snap` plus `quantize before grid vote` temporarily disables `Dither`, the preset still remembers the dither mode the operator selected so it returns when quantize-first is turned off. Older partial presets are normalized on load: missing keys fall back to the GUI defaults instead of inheriting whatever happened to be active before loading.
 
+## Tooltips
+
+Control hints and palette-swatch color hints use the app's custom `data-tooltip` layer. Do not add browser-native `title` attributes; disabled-control explanations should also go through `data-tooltip` so every hint keeps the same visual style.
+
 ## Output Size
 
 After import, the GUI derives the output aspect ratio from the source image. The default output height is the source height capped at 1024 pixels, with width computed from the same source ratio. With `lock source aspect` enabled, editing width updates height and editing height updates width, so the conversion keeps the original image proportions instead of introducing a crop target.
