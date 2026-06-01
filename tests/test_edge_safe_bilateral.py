@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from PIL import Image
+from PIL import ImageChops
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -25,6 +26,11 @@ def channel_variance(image: Image.Image, box: tuple[int, int, int, int]) -> floa
 def mean_luma(image: Image.Image, box: tuple[int, int, int, int]) -> float:
     pixels = list(image.crop(box).convert("RGB").getdata())
     return sum(pag.srgb_luma(pixel) for pixel in pixels) / len(pixels)
+
+
+def changed_pixels(left: Image.Image, right: Image.Image) -> int:
+    diff = ImageChops.difference(left.convert("RGB"), right.convert("RGB"))
+    return sum(1 for pixel in diff.getdata() if pixel != (0, 0, 0))
 
 
 def build_fixture() -> Image.Image:
@@ -62,6 +68,21 @@ def main() -> None:
     assert safe_config.bilateral_mode == "edge-safe"
     assert plain_config.bilateral_mode == "standard"
     assert legacy_config.bilateral_mode == "standard"
+
+    moderate_edge_safe = pag.bilateral_smooth(
+        source,
+        radius=2,
+        sigma_color=18.0,
+        sigma_space=1.4,
+        mode="edge-safe",
+        edge_mask=edge_mask,
+    )
+    assert changed_pixels(source, moderate_edge_safe) >= 4000, (
+        "edge-safe mode collapsed into no-op smoothing"
+    )
+    assert mean_luma(moderate_edge_safe, (38, 0, 42, 80)) <= 1.0, (
+        "moderate smoothing blurred the dark contour"
+    )
 
     standard = pag.bilateral_smooth(
         source,

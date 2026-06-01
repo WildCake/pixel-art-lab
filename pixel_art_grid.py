@@ -49,7 +49,7 @@ BAYER_4X4_ARRAY = np.asarray(BAYER_4X4, dtype=np.float64) if np is not None else
 EDGE_SAFE_BILATERAL_EDGE_THRESHOLD = 0.16
 EDGE_SAFE_BILATERAL_DARK_LUMA = 58.0
 EDGE_SAFE_BILATERAL_DARK_CONTRAST = 24.0
-EDGE_SAFE_BILATERAL_MAX_BLEND = 0.85
+EDGE_SAFE_BILATERAL_MAX_BLEND = 0.92
 
 
 @dataclass(frozen=True)
@@ -1370,10 +1370,6 @@ if njit is not None and np is not None:
         width = source.shape[1]
         out = np.empty_like(source)
 
-        hard_detail_range = luma_gate * 1.6
-        if hard_detail_range < dark_contrast:
-            hard_detail_range = dark_contrast
-
         for y in prange(height):
             for x in range(width):
                 center_red = float(source[y, x, 0])
@@ -1388,11 +1384,7 @@ if njit is not None and np is not None:
                 local_range = _numba_local_luma_range(source, x, y)
                 center_is_dark = center_luma <= dark_luma
 
-                if (
-                    center_edge >= edge_threshold
-                    or local_range >= hard_detail_range
-                    or (center_is_dark and local_range >= dark_contrast)
-                ):
+                if center_is_dark and local_range >= dark_contrast:
                     out[y, x, 0] = source[y, x, 0]
                     out[y, x, 1] = source[y, x, 1]
                     out[y, x, 2] = source[y, x, 2]
@@ -1431,10 +1423,6 @@ if njit is not None and np is not None:
                         if luma_delta > luma_gate:
                             continue
 
-                        neighbor_edge = float(edge_mask[yy, xx]) / 255.0
-                        if neighbor_edge >= edge_threshold and (dx != 0 or dy != 0):
-                            continue
-
                         neighbor_is_dark = neighbor_luma <= dark_luma
                         if center_is_dark != neighbor_is_dark and luma_delta >= dark_contrast:
                             continue
@@ -1461,12 +1449,14 @@ if njit is not None and np is not None:
                             )
                             / sigma_color2
                         )
-                        edge_factor = 1.0 - _numba_smoothstep(
-                            edge_threshold * 0.45,
+                        neighbor_edge = float(edge_mask[yy, xx]) / 255.0
+                        edge_value = center_edge if center_edge > neighbor_edge else neighbor_edge
+                        edge_factor = 1.0 - 0.55 * _numba_smoothstep(
                             edge_threshold,
-                            center_edge if center_edge > neighbor_edge else neighbor_edge,
+                            0.9,
+                            edge_value,
                         )
-                        luma_factor = 1.0 - _numba_smoothstep(luma_gate * 0.55, luma_gate, luma_delta)
+                        luma_factor = 1.0 - 0.35 * _numba_smoothstep(luma_gate * 0.65, luma_gate, luma_delta)
                         weight = (
                             spatial[dy + radius, dx + radius]
                             * range_weight
@@ -1488,14 +1478,14 @@ if njit is not None and np is not None:
                 smoothed_green = weighted_green / total_weight
                 smoothed_blue = weighted_blue / total_weight
                 detail_factor = 1.0 - _numba_smoothstep(
-                    luma_gate * 0.65,
-                    luma_gate * 1.35,
+                    luma_gate * 0.9,
+                    luma_gate * 2.4,
                     local_range,
-                )
-                edge_factor = 1.0 - _numba_smoothstep(edge_threshold * 0.45, edge_threshold, center_edge)
+                ) * 0.45
+                edge_factor = 1.0 - 0.55 * _numba_smoothstep(edge_threshold, 0.9, center_edge)
                 blend = detail_factor * edge_factor
-                if blend > 0.85:
-                    blend = 0.85
+                if blend > EDGE_SAFE_BILATERAL_MAX_BLEND:
+                    blend = EDGE_SAFE_BILATERAL_MAX_BLEND
 
                 out[y, x, 0] = _numba_clamp_channel(center_red + (smoothed_red - center_red) * blend)
                 out[y, x, 1] = _numba_clamp_channel(center_green + (smoothed_green - center_green) * blend)
@@ -2136,8 +2126,8 @@ def bilateral_smooth(
                     edge_mask.convert("L").resize(source.size, Image.Resampling.NEAREST),
                     dtype=np.uint8,
                 )
-            luma_gate = max(16.0, min(72.0, sigma_color * 1.75))
-            boundary_distance = max(26.0, min(112.0, sigma_color * 2.6))
+            luma_gate = max(22.0, min(96.0, sigma_color * 2.4))
+            boundary_distance = max(34.0, min(132.0, sigma_color * 3.4))
             output = _edge_safe_bilateral_smooth_numba(
                 source_array,
                 edge_array,
@@ -2191,10 +2181,7 @@ def bilateral_smooth(
                 center_edge = 0.0
                 if edge_pixels is not None:
                     center_edge = edge_pixels[x, y] / 255.0
-                if center_edge >= EDGE_SAFE_BILATERAL_EDGE_THRESHOLD or local_range >= max(
-                    EDGE_SAFE_BILATERAL_DARK_CONTRAST,
-                    sigma_color * 2.8,
-                ):
+                if center_luma <= EDGE_SAFE_BILATERAL_DARK_LUMA and local_range >= EDGE_SAFE_BILATERAL_DARK_CONTRAST:
                     dst[x, y] = center
                     continue
 
@@ -2206,7 +2193,7 @@ def bilateral_smooth(
                     color = src[xx, yy]
                     if mode == "edge-safe":
                         neighbor_luma = srgb_luma(color)
-                        if abs(neighbor_luma - center_luma) > max(16.0, sigma_color * 1.75):
+                        if abs(neighbor_luma - center_luma) > max(22.0, sigma_color * 2.4):
                             continue
                         dark_crossing = (
                             (center_luma <= EDGE_SAFE_BILATERAL_DARK_LUMA)
@@ -2214,7 +2201,7 @@ def bilateral_smooth(
                         )
                         if dark_crossing and abs(neighbor_luma - center_luma) >= EDGE_SAFE_BILATERAL_DARK_CONTRAST:
                             continue
-                        if color_distance_squared(center, color) > max(26.0, sigma_color * 2.6) ** 2:
+                        if color_distance_squared(center, color) > max(34.0, sigma_color * 3.4) ** 2:
                             continue
                     dr = color[0] - center[0]
                     dg = color[1] - center[1]
@@ -2232,13 +2219,13 @@ def bilateral_smooth(
                     EDGE_SAFE_BILATERAL_MAX_BLEND,
                     (
                         1.0
-                        - smoothstep(
-                            EDGE_SAFE_BILATERAL_EDGE_THRESHOLD * 0.45,
-                            EDGE_SAFE_BILATERAL_EDGE_THRESHOLD,
-                            center_edge,
-                        )
+                        - 0.55 * smoothstep(EDGE_SAFE_BILATERAL_EDGE_THRESHOLD, 0.9, center_edge)
                     )
-                    * (1.0 - smoothstep(max(10.0, sigma_color * 1.15), max(24.0, sigma_color * 2.4), local_range)),
+                    * (
+                        1.0
+                        - 0.45
+                        * smoothstep(max(19.8, sigma_color * 2.16), max(52.8, sigma_color * 5.76), local_range)
+                    ),
                 )
                 dst[x, y] = (
                     clamp_channel(center[0] + (weighted_red / total_weight - center[0]) * blend),
