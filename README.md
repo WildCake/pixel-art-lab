@@ -4,6 +4,16 @@ Local browser tool for converting AI-generated or faux pixel art into a strict p
 
 It is designed for agent/operator work: an agent starts the local service, the operator imports one image, tunes the live preview, and exports the result.
 
+## Key Capabilities
+
+- Automatic hidden-grid detection estimates the source mixel cell size and suggests candidate real pixel resolutions.
+- Grid Snap transfers enlarged AI pseudo-pixels to a strict pixel grid without averaging away one-pixel strokes.
+- Adaptive ordered dithering applies texture only where it helps smooth areas, while avoiding detailed edges and objects.
+- Palette builders preserve rare colors, including saturated accents and pale neutral tones such as masks, whites, grays, and ivory highlights.
+- RGB/OKLab palette distance modes, edge-aware palette weighting, rare hue protection, and tonal rare-cell reservation are available for comparison.
+- Live preview supports cursor-centered zoom, clamped panning, full-frame hold-before compare, and local `Z` hover comparison.
+- All processing is local to the Python server; imported images are not uploaded to a remote service.
+
 ![GPT mixels converted to real pixel art comparison](docs/examples/gpt-character-generation-original-v2-v1-comparison.png)
 
 ## Features
