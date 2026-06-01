@@ -65,6 +65,22 @@ def main() -> None:
         "paletteStrategy": "projected-rare",
     }
 
+    default_config = lab.config_from_settings(
+        {key: value for key, value in settings.items() if key != "gridQuantizeFirst"},
+        source_size=source.size,
+    )
+    assert default_config.grid_snap_quantize_first is False
+    assert default_config.dither == "none"
+    default_ordered_config = lab.config_from_settings(
+        {
+            **{key: value for key, value in settings.items() if key != "gridQuantizeFirst"},
+            "dither": "ordered",
+        },
+        source_size=source.size,
+    )
+    assert default_ordered_config.grid_snap_quantize_first is False
+    assert default_ordered_config.dither == "ordered"
+
     none_quantized, _none_result = render(
         source,
         {**settings, "gridQuantizeFirst": True, "dither": "none"},

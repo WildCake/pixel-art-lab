@@ -232,7 +232,7 @@ def config_from_settings(
 
     colors = as_int(settings, "colors", 64, 2, 1024)
     grid_snap_enabled = as_bool(settings, "gridSnap", False)
-    grid_snap_quantize_first = as_bool(settings, "gridQuantizeFirst", True)
+    grid_snap_quantize_first = as_bool(settings, "gridQuantizeFirst", False)
     dither = as_choice(settings, "dither", "none", ("ordered", "floyd", "none"))
     if grid_snap_enabled and grid_snap_quantize_first:
         dither = "none"
@@ -1044,7 +1044,7 @@ HTML = r"""<!doctype html>
           <input id="gridAutoSize" data-setting type="checkbox" checked> auto size from detected mixels
         </label>
         <label class="check" title="Reduce source colors with the active Palette Builder before cell voting so rare intended colors are not averaged away.">
-          <input id="gridQuantizeFirst" data-setting type="checkbox" checked> quantize before grid vote
+          <input id="gridQuantizeFirst" data-setting type="checkbox"> quantize before grid vote
         </label>
         <div class="row">
           <label>

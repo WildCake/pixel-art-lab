@@ -4967,7 +4967,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dither",
         choices=("ordered", "floyd", "none"),
         default="none",
-        help="Dithering mode after palette reduction, default: none. Ignored when --grid-snap uses quantize-first voting.",
+        help="Dithering mode after palette reduction, default: none. Ignored when --grid-snap uses --grid-quantize-first.",
     )
     parser.add_argument(
         "--dither-strength",
@@ -5017,9 +5017,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Grid snap cell reducer, default: center.",
     )
     parser.add_argument(
-        "--no-grid-quantize-first",
+        "--grid-quantize-first",
         action="store_true",
-        help="Disable palette quantization before grid cell voting. Required when testing dither with --grid-snap.",
+        help="Quantize source colors before grid cell voting. Disabled by default so dither can be tested with --grid-snap.",
     )
     parser.add_argument(
         "--grid-dark-threshold",
@@ -5249,7 +5249,7 @@ def main() -> None:
 
     if args.colors < 2 or args.colors > 1024:
         parser.error("--colors must be between 2 and 1024")
-    dither_disabled_by_grid_vote = args.grid_snap and not args.no_grid_quantize_first and args.dither != "none"
+    dither_disabled_by_grid_vote = args.grid_snap and args.grid_quantize_first and args.dither != "none"
     if args.dither != "none" and args.colors > 256 and not dither_disabled_by_grid_vote:
         parser.error("--dither modes support at most 256 colors")
     if args.dither_strength < 0:
@@ -5318,7 +5318,7 @@ def main() -> None:
         resample=args.resample,
         grid_snap_enabled=args.grid_snap,
         grid_snap_method=args.grid_snap_method,
-        grid_snap_quantize_first=not args.no_grid_quantize_first,
+        grid_snap_quantize_first=args.grid_quantize_first,
         grid_snap_dark_threshold=args.grid_dark_threshold,
         preserve_luma=not args.no_preserve_luma,
         preserve_saturation=not args.no_preserve_saturation,

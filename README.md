@@ -59,12 +59,12 @@ For GPT/imagegen pixel art with visible mixels:
 ```txt
 Grid Snap: on
 auto size from detected mixels: on
-quantize before grid vote: on
+quantize before grid vote: off
 Cell reducer: nearest center sample
 Palette strategy: projected-rare
 Colors: 64
-Dither: none while quantize before grid vote is on
-Dither scope: adaptive smooth areas after turning quantize before grid vote off
+Dither: ordered Bayer if smooth backgrounds need texture, otherwise none
+Dither scope: adaptive smooth areas
 ```
 
 For larger environment concepts where color richness matters:

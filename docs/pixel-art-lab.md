@@ -29,12 +29,12 @@ After import, the GUI derives the output aspect ratio from the source image. The
 `Grid Snap` is for GPT/image-generation pseudo-pixel art where the model drew enlarged "mixels" instead of a true logical pixel grid. When enabled, the normal resize stage is replaced by a hidden-grid transfer stage:
 
 - `auto size from detected mixels` estimates likely source-pixel cell sizes from horizontal and vertical edge profiles, then exposes the best candidate logical resolutions through the `Auto variant` slider. Turning this off keeps manual `Width` and `Height` fully in control.
-- `quantize before grid vote` is enabled by default. It limits the source colors with the active Palette Builder before cell voting, so tiny intended colors survive as palette colors instead of being replaced by a separate hidden median-cut palette. Dithering is disabled while this is on because every voted cell has already been snapped into the active palette before the final palette stage.
+- `quantize before grid vote` is disabled by default. When enabled, it limits the source colors with the active Palette Builder before cell voting, so tiny intended colors survive as palette colors instead of being replaced by a separate hidden median-cut palette. Dithering is disabled while this is on because every voted cell has already been snapped into the active palette before the final palette stage.
 - `cell mode` chooses the most common quantized color inside each detected output cell.
 - `nearest center sample` takes the nearest source color at the center of each output cell and avoids averaging.
 - `dark-stroke bias` starts from cell mode, then preserves narrow dark high-contrast strokes inside a cell, which helps one-mixel black separators on bones, fingers, ribs, teeth, and other line-art details.
 
-For a large environment concept, start with `Grid Snap` enabled, `auto size from detected mixels` enabled, `dark-stroke bias`, and `quantize before grid vote`; then scrub `Auto variant` around the detected candidates and compare stone edges, cracks, moss, and fog gradients with the `Z` tooltip.
+For a large environment concept, start with `Grid Snap` enabled, `auto size from detected mixels` enabled, `nearest center sample`, and `quantize before grid vote` off; then scrub `Auto variant` around the detected candidates and compare stone edges, cracks, moss, and fog gradients with the `Z` tooltip. Turn quantize-first on only when rare source colors are being averaged away and dithering is not needed.
 
 ## Included Algorithm Families
 
