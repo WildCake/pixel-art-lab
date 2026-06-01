@@ -68,11 +68,13 @@ The projected strategies use the imported image as the palette donor. `projected
 
 Projected strategies reserve rare tonal cells as well as saturated hue accents. Pale masks, whites, grays, ivory highlights, and other low-saturation accents should not be dropped just because they are less colorful than fire, flowers, or magic effects. The active `Color distance` setting is used during projected candidate scoring and final palette mapping.
 
+`Bilateral mode` has two algorithms. `standard bilateral` is the classic color-distance smoother and is kept for comparison. `edge-safe contours` first checks the edge mask, local 3x3 brightness range, strong luma jumps, and dark-stroke crossings; it only blends neighbors that pass those gates, then caps the blend near detail. Use it when a source needs flat-area noise cleanup but black outlines, skeleton fingers, ribs, or other one-pixel contour marks must stay crisp.
+
 ## Performance Rule
 
 New conversion strategies must put expensive per-pixel, per-tile, per-unique-color mapping, dithering, cleanup, and scoring work in NumPy or Numba first. If a step needs an explicit per-pixel loop, implement it as a Numba kernel before exposing it in the GUI. Python should only orchestrate small palette-slot allocation steps and keep a pure-Python fallback for missing optional dependencies. Do not add new Python pixel loops to the hot render path.
 
-Current accelerated coverage includes projected mass/rare palette projection, projected edge/anchor/frontier/graft color mapping, projected island/frontier tile scoring, grid-snap center/mode/dark-stroke cell transfer, rare-color guarded palette mapping, ordered and Floyd-Steinberg dithering, bilateral smoothing, edge sharpen blending, luma/saturation preservation, low-detail snapping, and single-pixel mixel cleanup.
+Current accelerated coverage includes projected mass/rare palette projection, projected edge/anchor/frontier/graft color mapping, projected island/frontier tile scoring, grid-snap center/mode/dark-stroke cell transfer, rare-color guarded palette mapping, ordered and Floyd-Steinberg dithering, standard and edge-safe bilateral smoothing, edge sharpen blending, luma/saturation preservation, low-detail snapping, and single-pixel mixel cleanup.
 
 ## Edge Modes
 

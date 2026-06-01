@@ -9,6 +9,7 @@ It is designed for agent/operator work: an agent starts the local service, the o
 - Automatic hidden-grid detection estimates the source mixel cell size and suggests candidate real pixel resolutions.
 - Grid Snap transfers enlarged AI pseudo-pixels to a strict pixel grid without averaging away one-pixel strokes.
 - Adaptive ordered dithering applies texture only where it helps smooth areas, while avoiding detailed edges and objects.
+- Edge-safe bilateral smoothing can reduce noisy flat areas while refusing to blur across contours, black strokes, and local detail jumps.
 - Palette builders preserve rare colors, including saturated accents and pale neutral tones such as masks, whites, grays, and ivory highlights.
 - RGB/OKLab palette distance modes, edge-aware palette weighting, rare hue protection, and tonal rare-cell reservation are available for comparison.
 - Live preview supports cursor-centered zoom, clamped panning, full-frame hold-before compare, and local `Z` hover comparison.
@@ -80,6 +81,7 @@ Color distance: weighted RGB
 Colors: 64
 Dither: ordered Bayer if smooth backgrounds need texture, otherwise none
 Dither scope: adaptive smooth areas
+Bilateral mode: edge-safe contours if smoothing is needed
 ```
 
 For larger environment concepts where color richness matters:

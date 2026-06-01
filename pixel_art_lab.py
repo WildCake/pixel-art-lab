@@ -261,6 +261,7 @@ def config_from_settings(
         preserve_saturation=as_bool(settings, "preserveSaturation", False),
         palette_source=None,
         bilateral_radius=as_int(settings, "bilateralRadius", 0, 0, 8),
+        bilateral_mode=as_choice(settings, "bilateralMode", "edge-safe", ("standard", "edge-safe")),
         bilateral_sigma_color=as_float(settings, "bilateralSigmaColor", 18.0, 1.0, 128.0),
         bilateral_sigma_space=as_float(settings, "bilateralSigmaSpace", 1.4, 0.1, 16.0),
         edge_palette_weight=as_float(settings, "edgePaletteWeight", 0.45, 0.0, 12.0),
@@ -429,7 +430,9 @@ def convert_in_memory(
     processed_key = (
         "processed",
         base_key,
+        edge_key if config.bilateral_mode == "edge-safe" else None,
         config.bilateral_radius,
+        config.bilateral_mode,
         config.bilateral_sigma_color,
         config.bilateral_sigma_space,
     )
@@ -441,6 +444,8 @@ def convert_in_memory(
             radius=config.bilateral_radius,
             sigma_color=config.bilateral_sigma_color,
             sigma_space=config.bilateral_sigma_space,
+            mode=config.bilateral_mode,
+            edge_mask=edge_mask,
         ),
     )
 
@@ -559,6 +564,8 @@ def convert_in_memory(
             "outputSaturation": round(output_saturation, 4),
             "edgeMode": edge_mode,
             "paletteInput": palette_mode,
+            "bilateralRadius": config.bilateral_radius,
+            "bilateralMode": config.bilateral_mode if config.bilateral_radius > 0 else None,
             "dither": config.dither,
             "ditherRequested": requested_dither,
             "ditherDisabledReason": dither_disabled_reason,
@@ -1231,11 +1238,20 @@ HTML = r"""<!doctype html>
             <input id="autocontrastCutoff" data-setting type="number" min="0" max="30" step="0.5" value="0" data-tooltip="Trim extremes and stretch tonal range before conversion.">
           </label>
         </div>
-        <div class="row3">
+        <div class="row">
+          <label>
+            <span class="label-title">Bilateral mode <span class="field-hint">edge rule</span></span>
+            <select id="bilateralMode" data-setting data-tooltip="Standard smooths by color distance only. Edge-safe also blocks blur across contours, dark strokes, and local detail jumps.">
+              <option value="edge-safe" selected>edge-safe contours</option>
+              <option value="standard">standard bilateral</option>
+            </select>
+          </label>
           <label>
             <span class="label-title">Bilateral radius <span class="field-hint">smooth</span></span>
             <input id="bilateralRadius" data-setting type="number" min="0" max="8" value="0" data-tooltip="Edge-preserving smoothing radius. It does not cut palette directly, but can remove rare source colors before quantization.">
           </label>
+        </div>
+        <div class="row">
           <label>
             <span class="label-title">Sigma color <span class="field-hint">range</span></span>
             <input id="bilateralSigmaColor" data-setting type="number" min="1" max="128" step="1" value="18" data-tooltip="How far colors may differ and still be smoothed together.">
@@ -1696,6 +1712,7 @@ HTML = r"""<!doctype html>
         'Used only by the interesting palette strategy.'
       );
 
+      setControlDisabled('bilateralMode', !bilateralActive, 'Used only when Bilateral radius is above 0.');
       setControlDisabled('bilateralSigmaColor', !bilateralActive, 'Used only when Bilateral radius is above 0.');
       setControlDisabled('bilateralSigmaSpace', !bilateralActive, 'Used only when Bilateral radius is above 0.');
 
