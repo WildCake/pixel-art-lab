@@ -33,6 +33,8 @@ Control hints and palette-swatch color hints use the app's custom `data-tooltip`
 
 After import, the GUI derives the output aspect ratio from the source image. The default output height is the source height capped at 1024 pixels, with width computed from the same source ratio. With `lock source aspect` enabled, editing width updates height and editing height updates width, so the conversion keeps the original image proportions instead of introducing a crop target.
 
+When resizing pixel art outside or inside this tool, use nearest-neighbor only for enlarging pixel-art previews or exports. Do not use nearest-neighbor for downscaling generated/source art to runtime size; use `lanczos`, `bicubic`, `box`, or the Pixel Art Lab conversion pipeline so shrinking does not drop source pixels.
+
 ## Grid Snap
 
 `Grid Snap` is for GPT/image-generation pseudo-pixel art where the model drew enlarged "mixels" instead of a true logical pixel grid. When enabled, the normal resize stage is replaced by a hidden-grid transfer stage:

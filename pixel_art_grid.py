@@ -7,7 +7,7 @@ The tool is intentionally small and deterministic:
 - lightly sharpen/color-grade before palette reduction;
 - quantize to a strict palette;
 - optionally apply ordered Bayer dithering;
-- export a nearest-neighbor preview for review.
+- export a nearest-neighbor upscaled preview for review.
 """
 
 from __future__ import annotations
@@ -5502,7 +5502,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Autocontrast cutoff percentage, default: 0.",
     )
-    parser.add_argument("--preview-scale", type=int, default=1, help="Nearest preview scale, default: 1.")
+    parser.add_argument("--preview-scale", type=int, default=1, help="Nearest-neighbor preview scale for upscaling only, default: 1.")
     parser.add_argument(
         "--bilateral-radius",
         type=int,

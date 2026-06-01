@@ -720,7 +720,6 @@ HTML = r"""<!doctype html>
       width: 100%;
       height: 100%;
       display: block;
-      image-rendering: pixelated;
     }
     #tooltip {
       position: fixed;
@@ -736,7 +735,6 @@ HTML = r"""<!doctype html>
     #tooltip canvas {
       width: 250px;
       height: 250px;
-      image-rendering: pixelated;
       display: block;
     }
     #tooltip .label {
@@ -1923,7 +1921,7 @@ HTML = r"""<!doctype html>
 
     function draw() {
       const { w, h } = viewportSize();
-      ctx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = state.zoom < 1;
       ctx.clearRect(0, 0, w, h);
       if (!state.outputImg) {
         drawPlaceholder();
@@ -1961,7 +1959,7 @@ HTML = r"""<!doctype html>
         state.height * state.zoom
       );
       ctx.restore();
-      ctx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = state.zoom < 1;
     }
 
     function viewerPoint(evt) {

@@ -8,6 +8,6 @@ This source image is a GPT/imagegen-style pixel-art character with visible pseud
 
 ## Original And Pixel Art Lab Variants
 
-Left to right: original GPT/imagegen mixel source, variant 2, variant 1. The variants are cropped to their active art area, matched to the original aspect ratio, then nearest-neighbor scaled to the original image size.
+Left to right: original GPT/imagegen mixel source, variant 2, variant 1. The variants are cropped to their active art area and matched to the original aspect ratio. Use nearest-neighbor only when the comparison export is being enlarged; downscaled comparison exports must use a proper downscale filter.
 
 ![Original, Variant 2, Variant 1](gpt-character-generation-original-v2-v1-comparison.png)
