@@ -66,6 +66,8 @@ The projected strategies use the imported image as the palette donor. `projected
 
 `Color distance` defaults to `weighted RGB` because it preserves very dark outlines more predictably. `OKLab` remains available as a manual comparison mode for perceptual hue matching, but it can choose nearby dark colors that soften black contour pixels when the palette is tight.
 
+Projected strategies reserve rare tonal cells as well as saturated hue accents. Pale masks, whites, grays, ivory highlights, and other low-saturation accents should not be dropped just because they are less colorful than fire, flowers, or magic effects. The active `Color distance` setting is used during projected candidate scoring and final palette mapping.
+
 ## Performance Rule
 
 New conversion strategies must put expensive per-pixel, per-tile, per-unique-color mapping, dithering, cleanup, and scoring work in NumPy or Numba first. If a step needs an explicit per-pixel loop, implement it as a Numba kernel before exposing it in the GUI. Python should only orchestrate small palette-slot allocation steps and keep a pure-Python fallback for missing optional dependencies. Do not add new Python pixel loops to the hot render path.

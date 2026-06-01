@@ -2469,6 +2469,7 @@ def quantize_median_cut_rgb(
             rare_boost=False,
             min_saturation=interesting_min_saturation,
             min_value=interesting_min_value,
+            color_distance=color_distance,
         )
         return (
             map_to_palette(
@@ -2488,6 +2489,7 @@ def quantize_median_cut_rgb(
             rare_boost=True,
             min_saturation=interesting_min_saturation,
             min_value=interesting_min_value,
+            color_distance=color_distance,
         )
         return (
             map_to_palette(
@@ -2506,6 +2508,7 @@ def quantize_median_cut_rgb(
             colors,
             min_saturation=interesting_min_saturation,
             min_value=interesting_min_value,
+            color_distance=color_distance,
         )
         return (
             map_to_palette_with_rare_guard(
@@ -2525,6 +2528,7 @@ def quantize_median_cut_rgb(
             colors,
             min_saturation=interesting_min_saturation,
             min_value=interesting_min_value,
+            color_distance=color_distance,
         )
         return (
             map_to_palette_with_rare_guard(
@@ -2544,6 +2548,7 @@ def quantize_median_cut_rgb(
             colors,
             min_saturation=interesting_min_saturation,
             min_value=interesting_min_value,
+            color_distance=color_distance,
         )
         return (
             map_to_palette_with_rare_guard(
@@ -2563,6 +2568,7 @@ def quantize_median_cut_rgb(
             colors,
             min_saturation=interesting_min_saturation,
             min_value=interesting_min_value,
+            color_distance=color_distance,
         )
         return (
             map_to_palette_with_rare_guard(
@@ -2582,6 +2588,7 @@ def quantize_median_cut_rgb(
             colors,
             min_saturation=interesting_min_saturation,
             min_value=interesting_min_value,
+            color_distance=color_distance,
         )
         return (
             map_to_palette(
@@ -2748,6 +2755,136 @@ def representative_peak_color(
             * (0.45 + max(item[0]) / 255.0)
         ),
     )[0]
+
+
+def representative_tonal_rare_color(
+    weighted_colors: list[tuple[tuple[int, int, int], float]],
+) -> tuple[int, int, int]:
+    return max(
+        weighted_colors,
+        key=lambda item: (
+            math.log1p(item[1])
+            * ((0.42 + srgb_luma(item[0]) / 255.0) ** 1.1)
+            * (0.80 + rgb_saturation(item[0]))
+        ),
+    )[0]
+
+
+def neutral_rare_palette(
+    weighted_colors: list[tuple[tuple[int, int, int], float]],
+    slots: int,
+    min_value: float,
+    max_saturation: float = 0.42,
+) -> list[tuple[int, int, int]]:
+    if slots <= 0 or not weighted_colors:
+        return []
+
+    groups: dict[tuple[int, int, int], list[tuple[tuple[int, int, int], float]]] = {}
+    cell_weights: dict[tuple[int, int, int], float] = {}
+    total_weight = 0.0
+    for color, weight in weighted_colors:
+        value = max(color) / 255.0
+        saturation = rgb_saturation(color)
+        if value < min_value or saturation > max_saturation:
+            continue
+        warm_axis = (color[0] - color[2]) / 255.0
+        green_axis = (color[1] - ((color[0] + color[2]) * 0.5)) / 255.0
+        if abs(warm_axis) < 0.025 and abs(green_axis) < 0.025:
+            tint_bin = 0
+        elif abs(warm_axis) >= abs(green_axis):
+            tint_bin = 1 if warm_axis > 0 else 2
+        else:
+            tint_bin = 3 if green_axis > 0 else 4
+        key = (
+            min(11, int(srgb_luma(color) / 256.0 * 12)),
+            min(5, int(saturation / max(max_saturation, 1e-6) * 6)),
+            tint_bin,
+        )
+        groups.setdefault(key, []).append((color, weight))
+        cell_weights[key] = cell_weights.get(key, 0.0) + weight
+        total_weight += weight
+
+    if not groups or total_weight <= 0:
+        return []
+
+    cell_count = max(1, len(groups))
+    scored_cells: list[tuple[tuple[int, int, int], float]] = []
+    for key, group in groups.items():
+        representative = representative_tonal_rare_color(group)
+        cell_weight = cell_weights[key]
+        rarity = min(5.0, 1.0 / math.sqrt(max(cell_weight / total_weight * cell_count, 0.015)))
+        value = max(representative) / 255.0
+        score = (0.45 * math.log1p(cell_weight) + 1.35 * rarity) * (0.5 + value)
+        scored_cells.append((key, score))
+
+    palette: list[tuple[int, int, int]] = []
+    for key, _score in sorted(scored_cells, key=lambda item: item[1], reverse=True):
+        palette.append(representative_tonal_rare_color(groups[key]))
+        if len(palette) >= slots:
+            break
+    return merge_palette_slots([], palette, slots)
+
+
+def tonal_rare_palette(
+    weighted_colors: list[tuple[tuple[int, int, int], float]],
+    slots: int,
+    min_value: float,
+) -> list[tuple[int, int, int]]:
+    if slots <= 0 or not weighted_colors:
+        return []
+
+    groups: dict[tuple[int, int, int], list[tuple[tuple[int, int, int], float]]] = {}
+    cell_weights: dict[tuple[int, int, int], float] = {}
+    total_weight = 0.0
+    for color, weight in weighted_colors:
+        value = max(color) / 255.0
+        if value < min_value:
+            continue
+        saturation = rgb_saturation(color)
+        luma_bin = min(11, int(srgb_luma(color) / 256.0 * 12))
+        chroma_bin = min(7, int(saturation * 16.0))
+        if saturation < 0.14:
+            warm_axis = (color[0] - color[2]) / 255.0
+            green_axis = (color[1] - ((color[0] + color[2]) * 0.5)) / 255.0
+            if abs(warm_axis) < 0.025 and abs(green_axis) < 0.025:
+                tint_bin = 0
+            elif abs(warm_axis) >= abs(green_axis):
+                tint_bin = 1 if warm_axis > 0 else 2
+            else:
+                tint_bin = 3 if green_axis > 0 else 4
+        else:
+            tint_bin = 5 + min(23, int(rgb_hue(color) / 15.0))
+        key = (luma_bin, chroma_bin, tint_bin)
+        groups.setdefault(key, []).append((color, weight))
+        cell_weights[key] = cell_weights.get(key, 0.0) + weight
+        total_weight += weight
+
+    if not groups or total_weight <= 0:
+        return []
+
+    cell_count = max(1, len(groups))
+    scored_cells: list[tuple[tuple[int, int, int], float]] = []
+    for key, group in groups.items():
+        cell_weight = cell_weights[key]
+        representative = representative_tonal_rare_color(group)
+        saturation = rgb_saturation(representative)
+        value = max(representative) / 255.0
+        rarity = min(5.0, 1.0 / math.sqrt(max(cell_weight / total_weight * cell_count, 0.015)))
+        neutral_bonus = 1.25 if saturation < 0.18 else 1.0
+        score = (
+            (0.55 * math.log1p(cell_weight) + 1.20 * rarity)
+            * (0.45 + value)
+            * (0.75 + saturation)
+            * neutral_bonus
+        )
+        scored_cells.append((key, score))
+
+    palette: list[tuple[int, int, int]] = []
+    for key, _score in sorted(scored_cells, key=lambda item: item[1], reverse=True):
+        palette.append(representative_tonal_rare_color(groups[key]))
+        if len(palette) >= slots:
+            break
+    return merge_palette_slots([], palette, slots)
 
 
 def value_band_palette(
@@ -3136,17 +3273,33 @@ def projected_candidate_bank(
 ) -> list[tuple[int, int, int]]:
     candidate_limit = max(192, colors * 4)
     candidates = merge_palette_slots(
-        hue_peak_palette(
+        neutral_rare_palette(
             source_weighted_colors,
-            min(96, candidate_limit // 2),
-            min_saturation=min_saturation,
+            min(max(8, round(colors * 0.14)), candidate_limit // 8),
             min_value=min_value,
         ),
-        shadow_spectrum_palette(
-            source_weighted_colors,
-            min(candidate_limit // 2, 128),
-            min_saturation=min_saturation,
-            min_value=min_value,
+        merge_palette_slots(
+            tonal_rare_palette(
+                source_weighted_colors,
+                min(max(12, round(colors * 0.22)), candidate_limit // 4),
+                min_value=min_value,
+            ),
+            merge_palette_slots(
+                hue_peak_palette(
+                    source_weighted_colors,
+                    min(96, candidate_limit // 2),
+                    min_saturation=min_saturation,
+                    min_value=min_value,
+                ),
+                shadow_spectrum_palette(
+                    source_weighted_colors,
+                    min(candidate_limit // 2, 128),
+                    min_saturation=min_saturation,
+                    min_value=min_value,
+                ),
+                candidate_limit,
+            ),
+            candidate_limit,
         ),
         candidate_limit,
     )
@@ -3162,6 +3315,7 @@ def nearest_candidate_cache(
     candidates: list[tuple[int, int, int]],
     cache: dict[tuple[int, int, int], tuple[int, int, int]],
     hue_match_weight: float = 0.0,
+    color_distance: str = "rgb",
 ) -> tuple[int, int, int]:
     mapped = cache.get(color)
     if mapped is None:
@@ -3169,7 +3323,7 @@ def nearest_candidate_cache(
             color,
             candidates,
             hue_match_weight=hue_match_weight,
-            color_distance="oklab",
+            color_distance=color_distance,
         )
         cache[color] = mapped
     return mapped
@@ -3218,6 +3372,7 @@ def projected_source_palette(
     rare_boost: bool,
     min_saturation: float,
     min_value: float,
+    color_distance: str = "rgb",
 ) -> list[tuple[int, int, int]]:
     candidate_limit = max(192, colors * 4)
     candidates = merge_palette_slots(
@@ -3259,7 +3414,7 @@ def projected_source_palette(
             counts.astype(np.float64),
             np.asarray(candidates, dtype=np.uint8),
             0.05 if rare_boost else 0.0,
-            1,
+            1 if color_distance == "oklab" else 0,
         )
         for candidate, mass in zip(candidates, projected_masses, strict=True):
             projected[candidate] = projected.get(candidate, 0.0) + float(mass)
@@ -3273,7 +3428,7 @@ def projected_source_palette(
                     color,
                     candidates,
                     hue_match_weight=0.05 if rare_boost else 0.0,
-                    color_distance="oklab",
+                    color_distance=color_distance,
                 )
                 cache[color] = mapped
             projected[mapped] = projected.get(mapped, 0.0) + count
@@ -3294,11 +3449,27 @@ def projected_source_palette(
 
     if rare_boost:
         accent_slots = max(24, round(colors * 0.48))
-        palette = hue_peak_palette(
-            projected_items,
-            accent_slots,
-            min_saturation=min_saturation,
-            min_value=min_value,
+        palette = merge_palette_slots(
+            neutral_rare_palette(
+                projected_items,
+                max(4, round(colors * 0.10)),
+                min_value=min_value,
+            ),
+            merge_palette_slots(
+                tonal_rare_palette(
+                    projected_items,
+                    max(6, round(colors * 0.14)),
+                    min_value=min_value,
+                ),
+                hue_peak_palette(
+                    projected_items,
+                    accent_slots,
+                    min_saturation=min_saturation,
+                    min_value=min_value,
+                ),
+                colors,
+            ),
+            colors,
         )
         palette = merge_palette_slots(
             palette,
@@ -3338,6 +3509,7 @@ def projected_edge_palette(
     colors: int,
     min_saturation: float,
     min_value: float,
+    color_distance: str = "rgb",
 ) -> list[tuple[int, int, int]]:
     candidates = projected_candidate_bank(
         source_weighted_colors,
@@ -3365,7 +3537,7 @@ def projected_edge_palette(
             unique.astype(np.uint32),
             candidate_array,
             0.02,
-            1,
+            1 if color_distance == "oklab" else 0,
         )
         red, green, blue = unpack_packed_rgb_channels(unique)
         saturation, value = saturation_value_from_channels(red, green, blue)
@@ -3387,7 +3559,13 @@ def projected_edge_palette(
         for y in range(target.height):
             for x in range(target.width):
                 color = pixels[x, y]
-                mapped = nearest_candidate_cache(color, candidates, cache, hue_match_weight=0.02)
+                mapped = nearest_candidate_cache(
+                    color,
+                    candidates,
+                    cache,
+                    hue_match_weight=0.02,
+                    color_distance=color_distance,
+                )
                 saturation = rgb_saturation(color)
                 value = max(color) / 255.0
                 edge = edges[x, y] / 255.0
@@ -3415,6 +3593,7 @@ def projected_edge_palette(
         rare_boost=True,
         min_saturation=min_saturation,
         min_value=min_value,
+        color_distance=color_distance,
     )
     contour_slots = max(26, round(colors * 0.46))
     palette = merge_preserving_rare_seed(
@@ -3458,6 +3637,7 @@ def projected_island_palette(
     colors: int,
     min_saturation: float,
     min_value: float,
+    color_distance: str = "rgb",
 ) -> list[tuple[int, int, int]]:
     candidates = projected_candidate_bank(
         source_weighted_colors,
@@ -3479,7 +3659,7 @@ def projected_island_palette(
             unique.astype(np.uint32),
             candidate_array,
             0.03,
-            1,
+            1 if color_distance == "oklab" else 0,
         )
         mapped_indices = mapped_unique[inverse].reshape((target.height, target.width))
         mass_array, island_score_array = _project_island_scores_from_indices_numba(
@@ -3496,7 +3676,7 @@ def projected_island_palette(
             np.asarray(candidates, dtype=np.uint8),
             tile_size,
             0.03,
-            1,
+            1 if color_distance == "oklab" else 0,
         )
         for index, candidate in enumerate(candidates):
             mass[candidate] = float(mass_array[index])
@@ -3513,7 +3693,13 @@ def projected_island_palette(
                 for y in range(tile_top, y_end):
                     for x in range(tile_left, x_end):
                         color = pixels[x, y]
-                        mapped = nearest_candidate_cache(color, candidates, cache, hue_match_weight=0.03)
+                        mapped = nearest_candidate_cache(
+                            color,
+                            candidates,
+                            cache,
+                            hue_match_weight=0.03,
+                            color_distance=color_distance,
+                        )
                         tile_counts[mapped] = tile_counts.get(mapped, 0.0) + 1.0
                         mass[mapped] = mass.get(mapped, 0.0) + 1.0
                 tile_total = max(1.0, sum(tile_counts.values()))
@@ -3547,6 +3733,7 @@ def projected_island_palette(
         rare_boost=True,
         min_saturation=min_saturation,
         min_value=min_value,
+        color_distance=color_distance,
     )
     island_slots = max(30, round(colors * 0.52))
     palette = merge_preserving_rare_seed(
@@ -3591,6 +3778,7 @@ def projected_anchor_palette(
     colors: int,
     min_saturation: float,
     min_value: float,
+    color_distance: str = "rgb",
 ) -> list[tuple[int, int, int]]:
     candidates = projected_candidate_bank(
         source_weighted_colors,
@@ -3612,7 +3800,7 @@ def projected_anchor_palette(
             unique.astype(np.uint32),
             candidate_array,
             0.025,
-            1,
+            1 if color_distance == "oklab" else 0,
         )
         red, green, blue = unpack_packed_rgb_channels(unique)
         saturation, value = saturation_value_from_channels(red, green, blue)
@@ -3652,7 +3840,13 @@ def projected_anchor_palette(
         target_counts = count_colors(target_image)
         cache: dict[tuple[int, int, int], tuple[int, int, int]] = {}
         for color, count in target_counts.items():
-            mapped = nearest_candidate_cache(color, candidates, cache, hue_match_weight=0.025)
+            mapped = nearest_candidate_cache(
+                color,
+                candidates,
+                cache,
+                hue_match_weight=0.025,
+                color_distance=color_distance,
+            )
             saturation = rgb_saturation(color)
             value = max(color) / 255.0
             hue_bin = 12 if saturation < min_saturation else min(11, int(rgb_hue(color) / 30.0))
@@ -3677,6 +3871,7 @@ def projected_anchor_palette(
         rare_boost=True,
         min_saturation=min_saturation,
         min_value=min_value,
+        color_distance=color_distance,
     )
     palette = rare_seed[:]
     for cell, slots in sorted(allocation.items(), key=lambda item: (item[0][0], item[0][1], item[0][2])):
@@ -3726,6 +3921,7 @@ def projected_frontier_palette(
     colors: int,
     min_saturation: float,
     min_value: float,
+    color_distance: str = "rgb",
 ) -> list[tuple[int, int, int]]:
     candidates = projected_candidate_bank(
         source_weighted_colors,
@@ -3753,7 +3949,7 @@ def projected_frontier_palette(
             unique.astype(np.uint32),
             candidate_array,
             0.035,
-            1,
+            1 if color_distance == "oklab" else 0,
         )
         mapped_indices = mapped_unique[inverse].reshape((target.height, target.width))
         edge_array = np.asarray(edge_mask.convert("L"), dtype=np.uint8)
@@ -3780,7 +3976,13 @@ def projected_frontier_palette(
                 for y in range(tile_top, y_end):
                     for x in range(tile_left, x_end):
                         color = pixels[x, y]
-                        mapped = nearest_candidate_cache(color, candidates, cache, hue_match_weight=0.035)
+                        mapped = nearest_candidate_cache(
+                            color,
+                            candidates,
+                            cache,
+                            hue_match_weight=0.035,
+                            color_distance=color_distance,
+                        )
                         saturation = rgb_saturation(color)
                         value = max(color) / 255.0
                         edge = edges[x, y] / 255.0
@@ -3838,6 +4040,7 @@ def projected_frontier_palette(
         rare_boost=True,
         min_saturation=min_saturation,
         min_value=min_value,
+        color_distance=color_distance,
     )
     palette = rare_seed[:]
     for cell, slots in sorted(allocation.items(), key=lambda item: (item[0][0], item[0][1])):
@@ -3900,6 +4103,7 @@ def projected_graft_palette(
     colors: int,
     min_saturation: float,
     min_value: float,
+    color_distance: str = "rgb",
 ) -> list[tuple[int, int, int]]:
     base = projected_source_palette(
         target_image,
@@ -3908,6 +4112,7 @@ def projected_graft_palette(
         rare_boost=True,
         min_saturation=min_saturation,
         min_value=min_value,
+        color_distance=color_distance,
     )
     candidates = projected_candidate_bank(
         source_weighted_colors,
@@ -3928,13 +4133,13 @@ def projected_graft_palette(
             unique.astype(np.uint32),
             np.asarray(candidates, dtype=np.uint8),
             0.04,
-            1,
+            1 if color_distance == "oklab" else 0,
         )
         base_indices = _nearest_palette_indices_numba(
             unique.astype(np.uint32),
             np.asarray(base, dtype=np.uint8),
             0.04,
-            1,
+            1 if color_distance == "oklab" else 0,
         )
         red, green, blue = unpack_packed_rgb_channels(unique)
         saturation, value = saturation_value_from_channels(red, green, blue)
@@ -3950,8 +4155,20 @@ def projected_graft_palette(
         cache_candidates: dict[tuple[int, int, int], tuple[int, int, int]] = {}
         cache_base: dict[tuple[int, int, int], tuple[int, int, int]] = {}
         for color, count in target_counts.items():
-            candidate = nearest_candidate_cache(color, candidates, cache_candidates, hue_match_weight=0.04)
-            base_color = nearest_candidate_cache(color, base, cache_base, hue_match_weight=0.04)
+            candidate = nearest_candidate_cache(
+                color,
+                candidates,
+                cache_candidates,
+                hue_match_weight=0.04,
+                color_distance=color_distance,
+            )
+            base_color = nearest_candidate_cache(
+                color,
+                base,
+                cache_base,
+                hue_match_weight=0.04,
+                color_distance=color_distance,
+            )
             saturation = rgb_saturation(color)
             value = max(color) / 255.0
             vote = count * (0.55 + saturation) * (0.4 + value)
