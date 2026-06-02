@@ -128,6 +128,8 @@ def main() -> None:
     assert 'class="viewer viewer-empty"' in lab.HTML
     assert ">load an image<" in lab.HTML
     assert 'id="savePng"' in lab.HTML
+    assert "pixelLabOutputBaseName(state.sourceName)" in lab.HTML
+    assert "_PIXEL_LAB.png" in lab.HTML
     assert "function minZoomForCurrentImage()" in lab.HTML
     assert "state.pendingFitOnRender = true" in lab.HTML
     config = lab.config_from_settings(settings, source_size=source.size)

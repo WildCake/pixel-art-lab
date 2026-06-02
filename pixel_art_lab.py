@@ -1454,6 +1454,7 @@ HTML = r"""<!doctype html>
       sourceWidth: 0,
       sourceHeight: 0,
       sourceAspect: 0,
+      sourceName: '',
       outputImg: null,
       originalImg: null,
       outputDataUrl: null,
@@ -2390,8 +2391,19 @@ HTML = r"""<!doctype html>
       if (!state.outputDataUrl) return;
       const link = document.createElement('a');
       link.href = state.outputDataUrl;
-      link.download = `pixel-art-${state.width}x${state.height}-${settingEl('colors').value}c.png`;
+      link.download = `${pixelLabOutputBaseName(state.sourceName)}_PIXEL_LAB.png`;
       link.click();
+    }
+
+    function pixelLabOutputBaseName(sourceName) {
+      const rawName = String(sourceName || '').split(/[\\/]/).pop() || 'pixel-art';
+      const withoutExtension = rawName.replace(/\.[^.]*$/, '') || rawName;
+      const cleaned = withoutExtension
+        .replace(/[<>:"/\\|?*\x00-\x1f]+/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[. ]+$/g, '');
+      return cleaned || 'pixel-art';
     }
 
     document.getElementById('savePng').addEventListener('click', saveCurrentPng);
@@ -2420,6 +2432,7 @@ HTML = r"""<!doctype html>
             loadImageUrl(originalDataUrl),
           ]);
           state.imageLoaded = true;
+          state.sourceName = result.name || file.name || '';
           state.originalImg = originalImg;
           state.originalDataUrl = originalDataUrl;
           applySourceOutputSize(result.width, result.height, result.targetWidth, result.targetHeight);
