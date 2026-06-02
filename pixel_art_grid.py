@@ -50,6 +50,7 @@ EDGE_SAFE_BILATERAL_EDGE_THRESHOLD = 0.16
 EDGE_SAFE_BILATERAL_DARK_LUMA = 58.0
 EDGE_SAFE_BILATERAL_DARK_CONTRAST = 24.0
 EDGE_SAFE_BILATERAL_MAX_BLEND = 0.92
+GRID_VOTE_BIN_BITS = 5
 SUPPORTED_INPUT_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -2069,6 +2070,23 @@ def quantize_grid_source(image: Image.Image, config: PixelArtConfig) -> Image.Im
     return quantized.convert("RGB")
 
 
+def bin_grid_vote_source(image: Image.Image, bits: int = GRID_VOTE_BIN_BITS) -> Image.Image:
+    source = image.convert("RGB")
+    bits = max(1, min(8, bits))
+    shift = 8 - bits
+    if shift <= 0:
+        return source
+    midpoint = 1 << (shift - 1)
+    if np is not None:
+        data = np.asarray(source, dtype=np.uint8)
+        binned = (((data.astype(np.uint16) >> shift) << shift) + midpoint).clip(0, 255)
+        binned = np.where(data == 255, 255, binned).astype(np.uint8)
+        return Image.fromarray(binned, mode="RGB")
+
+    lookup = [255 if value == 255 else min(255, ((value >> shift) << shift) + midpoint) for value in range(256)]
+    return source.point(lookup * 3)
+
+
 def grid_edge_profiles(image: Image.Image) -> tuple[object, object]:
     if np is None:
         return [], []
@@ -2397,9 +2415,44 @@ def grid_snap_image(image: Image.Image, config: PixelArtConfig) -> Image.Image:
     detail_array = np.asarray(source, dtype=np.uint8)
     if config.grid_snap_quantize_first:
         vote_source = quantize_grid_source(source, config)
-    else:
+    elif config.grid_snap_method == "center":
         vote_source = source
+    else:
+        vote_source = bin_grid_vote_source(source)
     vote_array = np.asarray(vote_source, dtype=np.uint8)
+
+    profile_x, profile_y = grid_edge_profiles(source)
+    cell_w = source.width / config.target_width
+    cell_h = source.height / config.target_height
+    _score_x, origin_x = grid_axis_score_and_origin(profile_x, cell_w)
+    _score_y, origin_y = grid_axis_score_and_origin(profile_y, cell_h)
+    topology = config.grid_snap_topology if config.grid_snap_topology in {"uniform", "elastic"} else "elastic"
+
+    if topology == "uniform":
+        if config.grid_snap_method == "center":
+            output = _grid_snap_center_numba(
+                vote_array,
+                config.target_width,
+                config.target_height,
+                origin_x,
+                origin_y,
+                cell_w,
+                cell_h,
+            )
+        else:
+            output = _grid_snap_vote_numba(
+                vote_array,
+                detail_array,
+                config.target_width,
+                config.target_height,
+                origin_x,
+                origin_y,
+                cell_w,
+                cell_h,
+                config.grid_snap_dark_threshold,
+                1 if config.grid_snap_method == "dark-stroke" else 0,
+            )
+        return Image.fromarray(output, mode="RGB")
 
     col_cuts, row_cuts, _metadata = grid_snap_cuts(source, config)
     if len(col_cuts) != config.target_width + 1 or len(row_cuts) != config.target_height + 1:

@@ -9,6 +9,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import pixel_art_lab as lab
+import pixel_art_grid as pag
 
 
 def decode_output(data_url: str) -> Image.Image:
@@ -31,6 +33,63 @@ def build_rgba_fixture() -> Image.Image:
     draw.rectangle((22, 18, 74, 46), fill=(245, 214, 88, 132))
     draw.line((8, 8, 87, 55), fill=(8, 10, 18, 255), width=3)
     return image
+
+
+def test_cell_mode_bins_near_colors(settings: dict) -> None:
+    image = Image.new("RGB", (8, 8))
+    pixels = image.load()
+    for y in range(8):
+        for x in range(8):
+            offset = (x + y * 8) % 8
+            pixels[x, y] = (96 + offset, 80 + offset, 72 + offset)
+
+    config = replace(
+        lab.config_from_settings(settings, source_size=image.size),
+        target_width=1,
+        target_height=1,
+        grid_snap_enabled=True,
+        grid_snap_method="cell-mode",
+        grid_snap_quantize_first=False,
+        grid_snap_topology="uniform",
+    )
+    output = pag.grid_snap_image(image, config)
+    red, green, blue = output.getpixel((0, 0))
+    assert 98 <= red <= 106
+    assert 82 <= green <= 90
+    assert 74 <= blue <= 82
+
+
+def test_uniform_legacy_uses_detected_phase(settings: dict) -> None:
+    image = Image.new("RGB", (64, 8), (0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    colors = [
+        (220, 24, 24),
+        (24, 220, 24),
+        (24, 24, 220),
+        (220, 220, 24),
+        (220, 24, 220),
+        (24, 220, 220),
+        (220, 24, 24),
+    ]
+    for index, color in enumerate(colors):
+        x0 = 2 + index * 8
+        x1 = min(image.width - 1, x0 + 7)
+        draw.rectangle((x0, 0, x1, image.height - 1), fill=color)
+
+    config = replace(
+        lab.config_from_settings(settings, source_size=image.size),
+        target_width=len(colors),
+        target_height=1,
+        grid_snap_enabled=True,
+        grid_snap_method="cell-mode",
+        grid_snap_quantize_first=False,
+        grid_snap_topology="uniform",
+    )
+    output = pag.grid_snap_image(image, config)
+    assert output.getpixel((0, 0))[0] > 180
+    assert output.getpixel((1, 0))[1] > 180
+    assert output.getpixel((2, 0))[2] > 180
+    assert output.getpixel((3, 0))[0] > 180 and output.getpixel((3, 0))[1] > 180
 
 
 def base_settings() -> dict:
@@ -96,6 +155,14 @@ def main() -> None:
     uniform_result = lab.convert_in_memory(source, uniform_settings, cache={}, version=11)
     assert uniform_result["stats"]["gridTopology"] == "uniform"
     assert uniform_result["stats"]["gridAxisStabilization"] == "off"
+    assert uniform_result["stats"]["gridCutPath"] == "uniform-origin"
+
+    elastic_result = lab.convert_in_memory(source, {**settings, "gridTopology": "elastic"}, cache={}, version=11)
+    assert elastic_result["stats"]["gridTopology"] == "elastic"
+    assert elastic_result["stats"]["gridCutPath"] == "elastic-cuts"
+
+    test_cell_mode_bins_near_colors(settings)
+    test_uniform_legacy_uses_detected_phase(settings)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp = Path(temp_dir)

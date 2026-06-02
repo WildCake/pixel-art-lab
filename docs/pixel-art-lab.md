@@ -40,9 +40,9 @@ When resizing pixel art outside or inside this tool, use nearest-neighbor only f
 `Grid Snap` is for GPT/image-generation pseudo-pixel art where the model drew enlarged "mixels" instead of a true logical pixel grid. When enabled, the normal resize stage is replaced by a hidden-grid transfer stage:
 
 - `auto size from detected mixels` estimates likely source-pixel cell sizes from horizontal and vertical edge profiles, then exposes the best candidate logical resolutions through the `Auto variant` slider. Turning this off keeps manual `Width` and `Height` fully in control.
-- Auto detection now scores both horizontal and vertical source axes, reports confidence, x/y ratio, and source-axis metadata. `Grid topology` switches between the old uniform cuts and elastic line cuts; `Axis repair` is selectable for elastic mode and disabled for uniform mode because the old path does not use it.
+- Auto detection now scores both horizontal and vertical source axes, reports confidence, x/y ratio, and source-axis metadata. `Grid topology` switches between the old phase-aligned uniform grid and elastic line cuts; `Axis repair` is selectable for elastic mode and disabled for uniform mode because the old path does not use it.
 - `quantize before grid vote` is disabled by default. When enabled, it limits the source colors with the active Palette Builder before cell voting, so tiny intended colors survive as palette colors instead of being replaced by a separate hidden median-cut palette. Dithering is disabled while this is on because every voted cell has already been snapped into the active palette before the final palette stage.
-- `cell mode` chooses the most common quantized color inside each detected output cell.
+- `cell mode` chooses the most common local color group inside each detected output cell. With `quantize before grid vote` off, near-identical AI antialias colors are grouped into 5-bit bins before voting so a noisy cell does not collapse to the first exact RGB value.
 - `nearest center sample` takes the nearest source color at the center of each output cell and avoids averaging.
 - `dark-stroke bias` starts from cell mode, then preserves narrow dark high-contrast strokes inside a cell, which helps one-mixel black separators on bones, fingers, ribs, teeth, and other line-art details.
 

@@ -570,6 +570,11 @@ def convert_in_memory(
         if config.grid_snap_enabled and config.grid_snap_topology == "elastic"
         else "off"
     )
+    grid_cut_path = (
+        "elastic-cuts"
+        if config.grid_snap_enabled and config.grid_snap_topology == "elastic"
+        else ("uniform-origin" if config.grid_snap_enabled else None)
+    )
 
     output_luma = pag.luma_mean(pixel_art)
     output_saturation = pag.luma_weighted_saturation_mean(pixel_art)
@@ -609,6 +614,7 @@ def convert_in_memory(
             "gridAutoSize": grid_auto_size if config.grid_snap_enabled else False,
             "gridTopology": config.grid_snap_topology if config.grid_snap_enabled else None,
             "gridAxisStabilization": grid_axis_stabilization if config.grid_snap_enabled else None,
+            "gridCutPath": grid_cut_path,
             "gridVariant": selected_grid_variant,
             "gridVariants": grid_variants[:9],
             "alphaPreserved": alpha_preserved,
@@ -1156,7 +1162,7 @@ HTML = r"""<!doctype html>
         <div class="row">
           <label>
             <span class="label-title">Grid topology <span class="field-hint">cell cuts</span></span>
-            <select id="gridTopology" data-setting data-tooltip="Uniform is the old fixed-size grid. Elastic follows detected cell lines when AI mixels drift.">
+            <select id="gridTopology" data-setting data-tooltip="Uniform is the old phase-aligned grid. Elastic follows detected cell lines when AI mixels drift.">
               <option value="uniform">uniform legacy</option>
               <option value="elastic" selected>elastic lines</option>
             </select>
