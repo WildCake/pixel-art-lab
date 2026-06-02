@@ -1438,6 +1438,8 @@ HTML = r"""<!doctype html>
     const MIN_OUTPUT_SIZE = 16;
     const MAX_OUTPUT_HEIGHT = 1024;
     const MAX_OUTPUT_WIDTH = 4096;
+    const VIEW_FIT_MIN_MARGIN = 16;
+    const VIEW_FIT_MAX_MARGIN = 48;
     const PRESET_STORAGE_KEY = 'pixel-art-lab-custom-presets-v1';
     let defaultSettings = null;
 
@@ -1470,6 +1472,7 @@ HTML = r"""<!doctype html>
       renderTimer: 0,
       renderSeq: 0,
       activeController: null,
+      pendingFitOnRender: false,
       syncingDimensions: false,
     };
 
@@ -1980,6 +1983,25 @@ HTML = r"""<!doctype html>
       return { w: rect.width, h: rect.height };
     }
 
+    function fitViewMargin() {
+      const { w, h } = viewportSize();
+      return clampValue(Math.round(Math.min(w, h) * 0.04), VIEW_FIT_MIN_MARGIN, VIEW_FIT_MAX_MARGIN);
+    }
+
+    function minZoomForCurrentImage() {
+      if (!state.width || !state.height) return 1;
+      const { w, h } = viewportSize();
+      const margin = fitViewMargin();
+      const availableW = Math.max(1, w - margin * 2);
+      const availableH = Math.max(1, h - margin * 2);
+      const fitZoom = Math.min(availableW / state.width, availableH / state.height);
+      return clampValue(Math.min(1, fitZoom), 0.02, 1);
+    }
+
+    function clampZoom(value) {
+      return clampValue(value, minZoomForCurrentImage(), 16);
+    }
+
     function clampPan() {
       if (!state.outputImg) return;
       const { w, h } = viewportSize();
@@ -2059,7 +2081,7 @@ HTML = r"""<!doctype html>
       const point = viewerPoint(evt);
       const before = imagePointFromViewer(point.x, point.y);
       const factor = evt.deltaY < 0 ? 1.2 : 1 / 1.2;
-      const nextZoom = Math.min(16, Math.max(1, state.zoom * factor));
+      const nextZoom = clampZoom(state.zoom * factor);
       state.zoom = nextZoom;
       state.offsetX = point.x - before.x * state.zoom;
       state.offsetY = point.y - before.y * state.zoom;
@@ -2258,7 +2280,12 @@ HTML = r"""<!doctype html>
         state.outputDataUrl = result.output;
         state.width = result.width;
         state.height = result.height;
-        state.zoom = Math.max(1, state.zoom);
+        if (state.pendingFitOnRender) {
+          state.zoom = minZoomForCurrentImage();
+          state.pendingFitOnRender = false;
+        } else {
+          state.zoom = clampZoom(state.zoom);
+        }
         clampPan();
         viewer.classList.remove('viewer-empty');
         draw();
@@ -2396,6 +2423,7 @@ HTML = r"""<!doctype html>
           state.zoom = 1;
           state.offsetX = 0;
           state.offsetY = 0;
+          state.pendingFitOnRender = true;
           setBeforeDown(false);
           scheduleRender(40);
         } catch (err) {

@@ -69,6 +69,8 @@ def main() -> None:
     assert 'class="viewer viewer-empty"' in lab.HTML
     assert ">load an image<" in lab.HTML
     assert 'id="savePng"' in lab.HTML
+    assert "function minZoomForCurrentImage()" in lab.HTML
+    assert "state.pendingFitOnRender = true" in lab.HTML
     config = lab.config_from_settings(settings, source_size=source.size)
     assert config.grid_snap_topology == "elastic"
     assert config.grid_snap_axis_stabilization == "conservative"
