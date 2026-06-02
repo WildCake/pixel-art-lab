@@ -565,6 +565,11 @@ def convert_in_memory(
     pixel_art = pag.cleanup_single_pixel_mixels(pixel_art, config)
     pixel_art, palette = pag.clamp_to_color_limit(pixel_art, config.colors, config)
     alpha_preserved = alpha_channel is not None
+    grid_axis_stabilization = (
+        config.grid_snap_axis_stabilization
+        if config.grid_snap_enabled and config.grid_snap_topology == "elastic"
+        else "off"
+    )
 
     output_luma = pag.luma_mean(pixel_art)
     output_saturation = pag.luma_weighted_saturation_mean(pixel_art)
@@ -603,7 +608,7 @@ def convert_in_memory(
             "gridQuantizeFirst": config.grid_snap_quantize_first if config.grid_snap_enabled else None,
             "gridAutoSize": grid_auto_size if config.grid_snap_enabled else False,
             "gridTopology": config.grid_snap_topology if config.grid_snap_enabled else None,
-            "gridAxisStabilization": config.grid_snap_axis_stabilization if config.grid_snap_enabled else None,
+            "gridAxisStabilization": grid_axis_stabilization if config.grid_snap_enabled else None,
             "gridVariant": selected_grid_variant,
             "gridVariants": grid_variants[:9],
             "alphaPreserved": alpha_preserved,
@@ -734,6 +739,20 @@ HTML = r"""<!doctype html>
       cursor: grab;
     }
     .viewer.dragging { cursor: grabbing; }
+    .viewer-stats-overlay {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 2;
+      max-width: calc(100% - 24px);
+      color: #ffffff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: normal;
+      pointer-events: none;
+      text-shadow: 0 1px 2px #000000, 0 0 5px #000000;
+    }
     #canvas {
       width: 100%;
       height: 100%;
@@ -1123,6 +1142,23 @@ HTML = r"""<!doctype html>
         </label>
         <div class="row">
           <label>
+            <span class="label-title">Grid topology <span class="field-hint">cell cuts</span></span>
+            <select id="gridTopology" data-setting data-tooltip="Uniform is the old fixed-size grid. Elastic follows detected cell lines when AI mixels drift.">
+              <option value="uniform">uniform legacy</option>
+              <option value="elastic" selected>elastic lines</option>
+            </select>
+          </label>
+          <label>
+            <span class="label-title">Axis repair <span class="field-hint">line stability</span></span>
+            <select id="gridAxisStabilization" data-setting data-tooltip="Repairs uneven detected cuts before grid transfer. Off keeps the raw detected lines.">
+              <option value="off">off</option>
+              <option value="conservative" selected>conservative</option>
+              <option value="aggressive">aggressive</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>
             <span class="label-title">Cell reducer <span class="field-hint">pixel pick rule</span></span>
             <select id="gridSnapMethod" data-setting data-tooltip="How each detected source cell becomes one output pixel.">
               <option value="dark-stroke">dark-stroke bias</option>
@@ -1302,6 +1338,9 @@ HTML = r"""<!doctype html>
         <label class="check" data-tooltip="Match output saturation back toward the resized source to reduce washed-out accents.">
           <input id="preserveSaturation" data-setting type="checkbox"> preserve saturation
         </label>
+        <label class="check" data-tooltip="Keep source transparency in the rendered PNG when the input has an alpha channel.">
+          <input id="preserveAlpha" data-setting type="checkbox" checked> preserve alpha
+        </label>
       </fieldset>
 
       <fieldset>
@@ -1353,8 +1392,7 @@ HTML = r"""<!doctype html>
 
       <fieldset>
         <legend>Export</legend>
-        <p class="section-note">Save the current render. The swatches show the actual palette returned by the latest output.</p>
-        <button id="savePng" data-tooltip="Download the latest rendered output as a PNG.">Save current PNG</button>
+        <p class="section-note">Swatches show the actual palette returned by the latest output.</p>
         <div id="palette" class="palette"></div>
       </fieldset>
     </aside>
@@ -1364,13 +1402,16 @@ HTML = r"""<!doctype html>
         <span id="status" class="status-pill status-ok">waiting for image</span>
         <span id="zoomInfo" class="metric">zoom 100%</span>
         <button id="holdBefore" class="secondary" data-tooltip="Hold to draw the imported original over the output with matching pan and zoom.">Hold Before</button>
-        <span id="detectorInfo" class="metric">grid idle</span>
-        <span id="stats"></span>
+        <button id="savePng" data-tooltip="Download the latest rendered output as a PNG.">Save PNG</button>
         <span class="spacer"></span>
         <span class="small">Wheel zooms at cursor. Drag pans. Hold Before or Z to compare.</span>
       </div>
       <div id="viewer" class="viewer">
         <canvas id="canvas"></canvas>
+        <div id="viewerStatsOverlay" class="viewer-stats-overlay" aria-live="polite">
+          <div id="viewerDetectorLine">grid idle</div>
+          <div id="viewerStatsLine">load an image to render</div>
+        </div>
       </div>
     </main>
   </div>
@@ -1429,8 +1470,8 @@ HTML = r"""<!doctype html>
     const statusEl = document.getElementById('status');
     const zoomInfo = document.getElementById('zoomInfo');
     const holdBeforeButton = document.getElementById('holdBefore');
-    const detectorInfo = document.getElementById('detectorInfo');
-    const statsEl = document.getElementById('stats');
+    const viewerDetectorLine = document.getElementById('viewerDetectorLine');
+    const viewerStatsLine = document.getElementById('viewerStatsLine');
     const paletteEl = document.getElementById('palette');
     const aspectInfo = document.getElementById('aspectInfo');
     const gridInfo = document.getElementById('gridInfo');
@@ -1674,6 +1715,7 @@ HTML = r"""<!doctype html>
       const gridSnap = settingEl('gridSnap').checked;
       const gridAutoSize = settingEl('gridAutoSize').checked;
       const gridQuantizeFirst = settingEl('gridQuantizeFirst').checked;
+      const gridTopology = settingEl('gridTopology').value;
       const gridMethod = settingEl('gridSnapMethod').value;
       const protectedHueActive = settingEl('protectedHueRanges').value.trim().length > 0;
       const bilateralActive = numberSetting('bilateralRadius') > 0;
@@ -1755,6 +1797,12 @@ HTML = r"""<!doctype html>
       setControlDisabled('resample', gridSnap, 'Grid Snap replaces normal resizing and does not use this resample filter.');
       setControlDisabled('gridAutoSize', !gridSnap, 'Used only when Grid Snap is enabled.');
       setControlDisabled('gridQuantizeFirst', !gridSnap, 'Used only when Grid Snap is enabled.');
+      setControlDisabled('gridTopology', !gridSnap, 'Used only when Grid Snap is enabled.');
+      setControlDisabled(
+        'gridAxisStabilization',
+        !(gridSnap && gridTopology === 'elastic'),
+        gridSnap ? 'Used only by elastic grid lines.' : 'Used only when Grid Snap is enabled.'
+      );
       setControlDisabled('gridSnapMethod', !gridSnap, 'Used only when Grid Snap is enabled.');
       setControlDisabled('gridVariant', !(gridSnap && gridAutoSize), 'Used only when Grid Snap auto size is enabled.');
       setControlDisabled(
@@ -2213,7 +2261,7 @@ HTML = r"""<!doctype html>
           ? ', edge Sobel: contour needs dither off'
           : '';
         const alphaText = s.alphaPreserved ? ', alpha' : '';
-        statsEl.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}${ditherText}${edgeText}${alphaText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
+        viewerStatsLine.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}${ditherText}${edgeText}${alphaText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
         const variants = Array.isArray(s.gridVariants) ? s.gridVariants : [];
         settingEl('gridVariant').max = Math.max(0, variants.length - 1);
         if (s.gridAutoSize && s.gridVariant) {
@@ -2222,13 +2270,13 @@ HTML = r"""<!doctype html>
         if (s.gridSnap && s.gridVariant) {
           const v = s.gridVariant;
           const top = variants.slice(0, 5).map((item, index) => `${index}: ${item.width}x${item.height} @${item.cellSize}px c${item.confidence}`).join(' | ');
-          detectorInfo.textContent = `grid auto c${v.confidence} ${s.gridTopology}/${s.gridAxisStabilization}`;
+          viewerDetectorLine.textContent = `grid auto c${v.confidence} ${s.gridTopology}/${s.gridAxisStabilization}`;
           gridInfo.textContent = `selected ${v.width}x${v.height}, source mixel ${v.cellSize}px, score ${v.score}, x/y ${v.axisRatio}. ${top}`;
         } else if (settingEl('gridSnap').checked) {
-          detectorInfo.textContent = `grid manual ${s.gridTopology || 'uniform'}/${s.gridAxisStabilization || 'off'}`;
+          viewerDetectorLine.textContent = `grid manual ${s.gridTopology || 'uniform'}/${s.gridAxisStabilization || 'off'}`;
           gridInfo.textContent = 'Grid snap uses manual Width/Height. Enable auto size to choose detector variants.';
         } else {
-          detectorInfo.textContent = 'grid idle';
+          viewerDetectorLine.textContent = 'grid idle';
           gridInfo.textContent = 'Auto grid size is optional; manual Width/Height still works when it is off.';
         }
         setStatus('live', 'status-ok');
@@ -2294,13 +2342,15 @@ HTML = r"""<!doctype html>
       draw();
     });
 
-    document.getElementById('savePng').addEventListener('click', () => {
+    function saveCurrentPng() {
       if (!state.outputDataUrl) return;
       const link = document.createElement('a');
       link.href = state.outputDataUrl;
       link.download = `pixel-art-${state.width}x${state.height}-${settingEl('colors').value}c.png`;
       link.click();
-    });
+    }
+
+    document.getElementById('savePng').addEventListener('click', saveCurrentPng);
 
     document.getElementById('saveSettings').addEventListener('click', () => {
       const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(normalizeSettings(collectSettings()), null, 2));

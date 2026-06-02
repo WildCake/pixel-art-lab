@@ -62,6 +62,11 @@ def base_settings() -> dict:
 def main() -> None:
     source = build_rgba_fixture()
     settings = base_settings()
+    assert 'id="gridTopology"' in lab.HTML
+    assert 'id="gridAxisStabilization"' in lab.HTML
+    assert 'id="preserveAlpha"' in lab.HTML
+    assert 'id="viewerStatsOverlay"' in lab.HTML
+    assert 'id="savePng"' in lab.HTML
     config = lab.config_from_settings(settings, source_size=source.size)
     assert config.grid_snap_topology == "elastic"
     assert config.grid_snap_axis_stabilization == "conservative"
@@ -77,6 +82,16 @@ def main() -> None:
     assert result["stats"]["gridAxisStabilization"] == "conservative"
     assert result["stats"]["gridVariant"]["confidence"] >= 0
     assert "axisRatio" in result["stats"]["gridVariant"]
+
+    uniform_settings = {
+        **settings,
+        "gridAutoSize": False,
+        "gridTopology": "uniform",
+        "gridAxisStabilization": "aggressive",
+    }
+    uniform_result = lab.convert_in_memory(source, uniform_settings, cache={}, version=11)
+    assert uniform_result["stats"]["gridTopology"] == "uniform"
+    assert uniform_result["stats"]["gridAxisStabilization"] == "off"
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp = Path(temp_dir)

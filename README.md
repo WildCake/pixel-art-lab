@@ -7,12 +7,12 @@ It is designed for agent/operator work: an agent starts the local service, the o
 ## Key Capabilities
 
 - Automatic hidden-grid detection estimates the source mixel cell size and suggests candidate real pixel resolutions.
-- Grid Snap transfers enlarged AI pseudo-pixels to a strict pixel grid without averaging away one-pixel strokes, with elastic cut detection and conservative axis stabilization enabled by default.
+- Grid Snap transfers enlarged AI pseudo-pixels to a strict pixel grid without averaging away one-pixel strokes; the UI can switch between the legacy uniform grid and elastic cut detection with selectable axis repair.
 - Adaptive ordered dithering applies texture only where it helps smooth areas, while avoiding detailed edges and objects.
 - Edge-safe bilateral smoothing can reduce noisy flat areas while refusing to blur across contours, black strokes, and local detail jumps.
 - Palette builders preserve rare colors, including saturated accents and pale neutral tones such as masks, whites, grays, and ivory highlights.
 - A deterministic `kmeans` palette builder is available as a baseline against the richer projected strategies.
-- Source alpha is preserved by default through crop, resize, grid snap, and export.
+- Source alpha is preserved by default through crop, resize, grid snap, and export, with a visible `preserve alpha` toggle when a flat PNG is needed.
 - RGB/OKLab palette distance modes, edge-aware palette weighting, rare hue protection, and tonal rare-cell reservation are available for comparison.
 - Live preview supports cursor-centered zoom, clamped panning, full-frame hold-before compare, and local `Z` hover comparison.
 - All processing is local to the Python server; imported images are not uploaded to a remote service.
