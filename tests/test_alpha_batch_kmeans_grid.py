@@ -66,6 +66,8 @@ def main() -> None:
     assert 'id="gridAxisStabilization"' in lab.HTML
     assert 'id="preserveAlpha"' in lab.HTML
     assert 'id="viewerStatsOverlay"' in lab.HTML
+    assert 'class="viewer viewer-empty"' in lab.HTML
+    assert ">load an image<" in lab.HTML
     assert 'id="savePng"' in lab.HTML
     config = lab.config_from_settings(settings, source_size=source.size)
     assert config.grid_snap_topology == "elastic"

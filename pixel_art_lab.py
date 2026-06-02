@@ -753,6 +753,19 @@ HTML = r"""<!doctype html>
       pointer-events: none;
       text-shadow: 0 1px 2px #000000, 0 0 5px #000000;
     }
+    .viewer.viewer-empty .viewer-stats-overlay {
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      max-width: calc(100% - 48px);
+      font-size: 36px;
+      line-height: 1.1;
+      font-weight: 800;
+      text-align: center;
+    }
+    .viewer.viewer-empty #viewerDetectorLine {
+      display: none;
+    }
     #canvas {
       width: 100%;
       height: 100%;
@@ -1406,11 +1419,11 @@ HTML = r"""<!doctype html>
         <span class="spacer"></span>
         <span class="small">Wheel zooms at cursor. Drag pans. Hold Before or Z to compare.</span>
       </div>
-      <div id="viewer" class="viewer">
+      <div id="viewer" class="viewer viewer-empty">
         <canvas id="canvas"></canvas>
         <div id="viewerStatsOverlay" class="viewer-stats-overlay" aria-live="polite">
-          <div id="viewerDetectorLine">grid idle</div>
-          <div id="viewerStatsLine">load an image to render</div>
+          <div id="viewerDetectorLine"></div>
+          <div id="viewerStatsLine">load an image</div>
         </div>
       </div>
     </main>
@@ -1983,9 +1996,6 @@ HTML = r"""<!doctype html>
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = '#11141c';
       ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = '#9da7bb';
-      ctx.font = '15px ui-monospace, monospace';
-      ctx.fillText('load an image to start', 28, 38);
     }
 
     function draw() {
@@ -2250,6 +2260,7 @@ HTML = r"""<!doctype html>
         state.height = result.height;
         state.zoom = Math.max(1, state.zoom);
         clampPan();
+        viewer.classList.remove('viewer-empty');
         draw();
         drawPalette(result.palette || []);
         const s = result.stats || {};
