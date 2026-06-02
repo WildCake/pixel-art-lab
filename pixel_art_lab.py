@@ -44,6 +44,7 @@ MAX_STAGE_CACHE_ENTRIES = 64
 MAX_RENDER_CACHE_ENTRIES = 8
 PALETTE_STRATEGIES = (
     "median-cut",
+    "kmeans",
     "interesting",
     "hue-mass",
     "spectrum-peaks",
@@ -120,7 +121,7 @@ def data_url_to_image(data_url: str) -> Image.Image:
         raise ValueError("image upload is too large")
     image = Image.open(io.BytesIO(raw))
     image.load()
-    return image.convert("RGB")
+    return image.convert("RGBA") if pag.image_has_alpha(image) else image.convert("RGB")
 
 
 def image_to_data_url(image: Image.Image) -> str:
@@ -263,8 +264,16 @@ def config_from_settings(
         grid_snap_method=as_choice(settings, "gridSnapMethod", "center", ("cell-mode", "center", "dark-stroke")),
         grid_snap_quantize_first=grid_snap_quantize_first,
         grid_snap_dark_threshold=as_float(settings, "gridDarkThreshold", 38.0, 0.0, 255.0),
+        grid_snap_topology=as_choice(settings, "gridTopology", "elastic", ("uniform", "elastic")),
+        grid_snap_axis_stabilization=as_choice(
+            settings,
+            "gridAxisStabilization",
+            "conservative",
+            ("off", "conservative", "aggressive"),
+        ),
         preserve_luma=as_bool(settings, "preserveLuma", False),
         preserve_saturation=as_bool(settings, "preserveSaturation", False),
+        preserve_alpha=as_bool(settings, "preserveAlpha", True),
         palette_source=None,
         bilateral_radius=as_int(settings, "bilateralRadius", 0, 0, 8),
         bilateral_mode=bilateral_mode_from_settings(settings),
@@ -428,8 +437,12 @@ def convert_in_memory(
         config.grid_snap_method,
         config.grid_snap_quantize_first,
         config.grid_snap_dark_threshold,
+        config.grid_snap_topology,
+        config.grid_snap_axis_stabilization,
     )
     base = cached("stage", base_key, lambda: pag.prepare_base_image(image, config))
+    alpha_key = ("alpha", base_key, config.preserve_alpha)
+    alpha_channel = cached("stage", alpha_key, lambda: pag.prepare_alpha_channel(image, config))
     requested_edge_mode = as_choice(settings, "edgeMode", "sobel", ("sobel", "laplacian", "highpass", "contour", "none"))
     edge_mode_disabled_reason = None
     edge_mode = requested_edge_mode
@@ -551,9 +564,11 @@ def convert_in_memory(
         pixel_art = pag.snap_low_detail_regions(pixel_art, edge_mask, config)
     pixel_art = pag.cleanup_single_pixel_mixels(pixel_art, config)
     pixel_art, palette = pag.clamp_to_color_limit(pixel_art, config.colors, config)
+    alpha_preserved = alpha_channel is not None
 
     output_luma = pag.luma_mean(pixel_art)
     output_saturation = pag.luma_weighted_saturation_mean(pixel_art)
+    pixel_art = pag.attach_alpha(pixel_art, alpha_channel)
     elapsed_ms = round((time.perf_counter() - started) * 1000)
 
     result = {
@@ -587,8 +602,11 @@ def convert_in_memory(
             "gridSnapMethod": config.grid_snap_method if config.grid_snap_enabled else None,
             "gridQuantizeFirst": config.grid_snap_quantize_first if config.grid_snap_enabled else None,
             "gridAutoSize": grid_auto_size if config.grid_snap_enabled else False,
+            "gridTopology": config.grid_snap_topology if config.grid_snap_enabled else None,
+            "gridAxisStabilization": config.grid_snap_axis_stabilization if config.grid_snap_enabled else None,
             "gridVariant": selected_grid_variant,
             "gridVariants": grid_variants[:9],
+            "alphaPreserved": alpha_preserved,
             "cacheHit": False,
             "stageCacheHits": stage_cache_hits,
         },
@@ -1129,9 +1147,10 @@ HTML = r"""<!doctype html>
         <p class="section-note">Choose how source colors are allocated before the image is mapped into the final palette.</p>
         <label>
           <span class="label-title">Strategy <span class="field-hint">slot allocation</span></span>
-          <select id="paletteStrategy" data-setting data-tooltip="Palette extraction strategy. Projected modes choose source colors and remap the target into them.">
-            <option value="median-cut">median-cut</option>
-            <option value="interesting">interesting</option>
+            <select id="paletteStrategy" data-setting data-tooltip="Palette extraction strategy. Projected modes choose source colors and remap the target into them.">
+              <option value="median-cut">median-cut</option>
+              <option value="kmeans">kmeans</option>
+              <option value="interesting">interesting</option>
             <option value="hue-mass">hue-mass</option>
             <option value="spectrum-peaks">spectrum-peaks</option>
             <option value="shadow-spectrum">shadow-spectrum</option>
@@ -1345,6 +1364,7 @@ HTML = r"""<!doctype html>
         <span id="status" class="status-pill status-ok">waiting for image</span>
         <span id="zoomInfo" class="metric">zoom 100%</span>
         <button id="holdBefore" class="secondary" data-tooltip="Hold to draw the imported original over the output with matching pan and zoom.">Hold Before</button>
+        <span id="detectorInfo" class="metric">grid idle</span>
         <span id="stats"></span>
         <span class="spacer"></span>
         <span class="small">Wheel zooms at cursor. Drag pans. Hold Before or Z to compare.</span>
@@ -1409,6 +1429,7 @@ HTML = r"""<!doctype html>
     const statusEl = document.getElementById('status');
     const zoomInfo = document.getElementById('zoomInfo');
     const holdBeforeButton = document.getElementById('holdBefore');
+    const detectorInfo = document.getElementById('detectorInfo');
     const statsEl = document.getElementById('stats');
     const paletteEl = document.getElementById('palette');
     const aspectInfo = document.getElementById('aspectInfo');
@@ -2191,7 +2212,8 @@ HTML = r"""<!doctype html>
         const edgeText = s.edgeModeDisabledReason === 'ditherContour'
           ? ', edge Sobel: contour needs dither off'
           : '';
-        statsEl.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}${ditherText}${edgeText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
+        const alphaText = s.alphaPreserved ? ', alpha' : '';
+        statsEl.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}${ditherText}${edgeText}${alphaText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
         const variants = Array.isArray(s.gridVariants) ? s.gridVariants : [];
         settingEl('gridVariant').max = Math.max(0, variants.length - 1);
         if (s.gridAutoSize && s.gridVariant) {
@@ -2199,11 +2221,14 @@ HTML = r"""<!doctype html>
         }
         if (s.gridSnap && s.gridVariant) {
           const v = s.gridVariant;
-          const top = variants.slice(0, 5).map((item, index) => `${index}: ${item.width}x${item.height} @${item.cellSize}px`).join(' | ');
-          gridInfo.textContent = `selected ${v.width}x${v.height}, source mixel ${v.cellSize}px, score ${v.score}. ${top}`;
+          const top = variants.slice(0, 5).map((item, index) => `${index}: ${item.width}x${item.height} @${item.cellSize}px c${item.confidence}`).join(' | ');
+          detectorInfo.textContent = `grid auto c${v.confidence} ${s.gridTopology}/${s.gridAxisStabilization}`;
+          gridInfo.textContent = `selected ${v.width}x${v.height}, source mixel ${v.cellSize}px, score ${v.score}, x/y ${v.axisRatio}. ${top}`;
         } else if (settingEl('gridSnap').checked) {
+          detectorInfo.textContent = `grid manual ${s.gridTopology || 'uniform'}/${s.gridAxisStabilization || 'off'}`;
           gridInfo.textContent = 'Grid snap uses manual Width/Height. Enable auto size to choose detector variants.';
         } else {
+          detectorInfo.textContent = 'grid idle';
           gridInfo.textContent = 'Auto grid size is optional; manual Width/Height still works when it is off.';
         }
         setStatus('live', 'status-ok');

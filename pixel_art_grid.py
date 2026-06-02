@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
@@ -50,6 +50,7 @@ EDGE_SAFE_BILATERAL_EDGE_THRESHOLD = 0.16
 EDGE_SAFE_BILATERAL_DARK_LUMA = 58.0
 EDGE_SAFE_BILATERAL_DARK_CONTRAST = 24.0
 EDGE_SAFE_BILATERAL_MAX_BLEND = 0.92
+SUPPORTED_INPUT_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 @dataclass(frozen=True)
@@ -73,8 +74,11 @@ class PixelArtConfig:
     grid_snap_method: str
     grid_snap_quantize_first: bool
     grid_snap_dark_threshold: float
+    grid_snap_topology: str
+    grid_snap_axis_stabilization: str
     preserve_luma: bool
     preserve_saturation: bool
+    preserve_alpha: bool
     palette_source: Path | None
     bilateral_radius: int
     bilateral_mode: str
@@ -1779,6 +1783,170 @@ if njit is not None and np is not None:
 
         return output
 
+
+    @njit(cache=True, parallel=True)
+    def _grid_snap_center_cuts_numba(source, col_cuts, row_cuts):
+        output_height = row_cuts.shape[0] - 1
+        output_width = col_cuts.shape[0] - 1
+        source_height = source.shape[0]
+        source_width = source.shape[1]
+        output = np.empty((output_height, output_width, 3), dtype=np.uint8)
+
+        for y in prange(output_height):
+            y0 = row_cuts[y]
+            y1 = row_cuts[y + 1]
+            sample_y = (y0 + y1 - 1) // 2
+            if sample_y < 0:
+                sample_y = 0
+            elif sample_y >= source_height:
+                sample_y = source_height - 1
+            for x in range(output_width):
+                x0 = col_cuts[x]
+                x1 = col_cuts[x + 1]
+                sample_x = (x0 + x1 - 1) // 2
+                if sample_x < 0:
+                    sample_x = 0
+                elif sample_x >= source_width:
+                    sample_x = source_width - 1
+                output[y, x, 0] = source[sample_y, sample_x, 0]
+                output[y, x, 1] = source[sample_y, sample_x, 1]
+                output[y, x, 2] = source[sample_y, sample_x, 2]
+
+        return output
+
+
+    @njit(cache=True, parallel=True)
+    def _grid_snap_vote_cuts_numba(
+        vote_source,
+        detail_source,
+        col_cuts,
+        row_cuts,
+        dark_threshold: float,
+        dark_bias: int,
+    ):
+        output_height = row_cuts.shape[0] - 1
+        output_width = col_cuts.shape[0] - 1
+        source_height = vote_source.shape[0]
+        source_width = vote_source.shape[1]
+        output = np.empty((output_height, output_width, 3), dtype=np.uint8)
+        max_unique = 256
+
+        for y in prange(output_height):
+            for x in range(output_width):
+                x0 = col_cuts[x]
+                x1 = col_cuts[x + 1]
+                y0 = row_cuts[y]
+                y1 = row_cuts[y + 1]
+
+                if x0 < 0:
+                    x0 = 0
+                elif x0 >= source_width:
+                    x0 = source_width - 1
+                if y0 < 0:
+                    y0 = 0
+                elif y0 >= source_height:
+                    y0 = source_height - 1
+                if x1 <= x0:
+                    x1 = x0 + 1
+                if y1 <= y0:
+                    y1 = y0 + 1
+                if x1 > source_width:
+                    x1 = source_width
+                if y1 > source_height:
+                    y1 = source_height
+
+                unique = np.empty(max_unique, dtype=np.uint32)
+                counts = np.zeros(max_unique, dtype=np.int64)
+                unique_count = 0
+                min_luma = 1.0e9
+                total_pixels = 0
+
+                for yy in range(y0, y1):
+                    for xx in range(x0, x1):
+                        red = np.uint32(vote_source[yy, xx, 0])
+                        green = np.uint32(vote_source[yy, xx, 1])
+                        blue = np.uint32(vote_source[yy, xx, 2])
+                        packed = (red << 16) | (green << 8) | blue
+                        found = -1
+                        for index in range(unique_count):
+                            if unique[index] == packed:
+                                found = index
+                                break
+                        if found >= 0:
+                            counts[found] += 1
+                        elif unique_count < max_unique:
+                            unique[unique_count] = packed
+                            counts[unique_count] = 1
+                            unique_count += 1
+
+                        detail_red = float(detail_source[yy, xx, 0])
+                        detail_green = float(detail_source[yy, xx, 1])
+                        detail_blue = float(detail_source[yy, xx, 2])
+                        luma = 0.2126 * detail_red + 0.7152 * detail_green + 0.0722 * detail_blue
+                        if luma < min_luma:
+                            min_luma = luma
+                        total_pixels += 1
+
+                best_index = 0
+                best_count = counts[0]
+                for index in range(1, unique_count):
+                    if counts[index] > best_count:
+                        best_count = counts[index]
+                        best_index = index
+
+                packed_mode = unique[best_index]
+                mode_red = np.int64((packed_mode >> 16) & 255)
+                mode_green = np.int64((packed_mode >> 8) & 255)
+                mode_blue = np.int64(packed_mode & 255)
+                mode_luma = 0.2126 * mode_red + 0.7152 * mode_green + 0.0722 * mode_blue
+
+                if dark_bias == 1 and mode_luma - min_luma >= dark_threshold and total_pixels > 0:
+                    dark_unique = np.empty(max_unique, dtype=np.uint32)
+                    dark_counts = np.zeros(max_unique, dtype=np.int64)
+                    dark_unique_count = 0
+                    dark_total = 0
+                    dark_limit = min_luma + max(8.0, dark_threshold * 0.35)
+
+                    for yy in range(y0, y1):
+                        for xx in range(x0, x1):
+                            detail_red = float(detail_source[yy, xx, 0])
+                            detail_green = float(detail_source[yy, xx, 1])
+                            detail_blue = float(detail_source[yy, xx, 2])
+                            luma = 0.2126 * detail_red + 0.7152 * detail_green + 0.0722 * detail_blue
+                            if luma > dark_limit:
+                                continue
+                            red = np.uint32(vote_source[yy, xx, 0])
+                            green = np.uint32(vote_source[yy, xx, 1])
+                            blue = np.uint32(vote_source[yy, xx, 2])
+                            packed = (red << 16) | (green << 8) | blue
+                            found = -1
+                            for index in range(dark_unique_count):
+                                if dark_unique[index] == packed:
+                                    found = index
+                                    break
+                            if found >= 0:
+                                dark_counts[found] += 1
+                            elif dark_unique_count < max_unique:
+                                dark_unique[dark_unique_count] = packed
+                                dark_counts[dark_unique_count] = 1
+                                dark_unique_count += 1
+                            dark_total += 1
+
+                    if dark_unique_count > 0 and dark_total <= max(1, int(math.ceil(total_pixels * 0.42))):
+                        dark_best_index = 0
+                        dark_best_count = dark_counts[0]
+                        for index in range(1, dark_unique_count):
+                            if dark_counts[index] > dark_best_count:
+                                dark_best_count = dark_counts[index]
+                                dark_best_index = index
+                        packed_mode = dark_unique[dark_best_index]
+
+                output[y, x, 0] = np.uint8((packed_mode >> 16) & 255)
+                output[y, x, 1] = np.uint8((packed_mode >> 8) & 255)
+                output[y, x, 2] = np.uint8(packed_mode & 255)
+
+        return output
+
 else:
     _nearest_palette_map_numba = None
     _nearest_palette_indices_numba = None
@@ -1794,6 +1962,8 @@ else:
     _cleanup_single_pixel_mixels_numba = None
     _grid_snap_center_numba = None
     _grid_snap_vote_numba = None
+    _grid_snap_center_cuts_numba = None
+    _grid_snap_vote_cuts_numba = None
 
 
 def center_crop_to_aspect(image: Image.Image, target_width: int, target_height: int) -> Image.Image:
@@ -1836,6 +2006,40 @@ def prepare_base_image(image: Image.Image, config: PixelArtConfig) -> Image.Imag
         (config.target_width, config.target_height),
         resample=resize_filter(config.resample),
     )
+
+
+def image_has_alpha(image: Image.Image) -> bool:
+    return image.mode in {"RGBA", "LA"} or (
+        image.mode == "P" and "transparency" in image.info
+    )
+
+
+def prepare_alpha_channel(image: Image.Image, config: PixelArtConfig) -> Image.Image | None:
+    if not config.preserve_alpha or not image_has_alpha(image):
+        return None
+
+    alpha = image.convert("RGBA").getchannel("A")
+    alpha = center_crop_to_aspect(alpha, config.target_width, config.target_height)
+    if config.grid_snap_enabled:
+        alpha_rgb = Image.merge("RGB", (alpha, alpha, alpha))
+        alpha_config = replace(
+            config,
+            grid_snap_quantize_first=False,
+            grid_snap_method="cell-mode",
+        )
+        return grid_snap_image(alpha_rgb, alpha_config).convert("L")
+    return alpha.resize(
+        (config.target_width, config.target_height),
+        resample=resize_filter(config.resample),
+    )
+
+
+def attach_alpha(image: Image.Image, alpha: Image.Image | None) -> Image.Image:
+    if alpha is None:
+        return image
+    output = image.convert("RGBA")
+    output.putalpha(alpha)
+    return output
 
 
 def quantize_grid_source(image: Image.Image, config: PixelArtConfig) -> Image.Image:
@@ -1914,6 +2118,63 @@ def grid_axis_score_and_origin(profile, period: float) -> tuple[float, float]:
     return max(0.0, best_score), best_origin
 
 
+def detector_confidence(score_x: float, score_y: float, axis_ratio: float) -> float:
+    if score_x <= 0 or score_y <= 0:
+        base = max(score_x, score_y) / 4.0
+    else:
+        base = (0.42 * score_x + 0.58 * score_y) / 4.0
+    ratio_penalty = max(0.0, 1.0 - min(0.55, abs(axis_ratio - 1.0)))
+    return round(clamp_float(base * ratio_penalty, 0.0, 1.0), 3)
+
+
+def clamp_float(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def grid_candidate(
+    width: int,
+    height: int,
+    source_width: int,
+    source_height: int,
+    profile_x,
+    profile_y,
+    source_axis: str,
+) -> dict[str, float | int | str] | None:
+    if width < 16 or height < 16:
+        return None
+    cell_x = source_width / width
+    cell_y = source_height / height
+    if cell_x < 1.75 or cell_x > 32.0 or cell_y < 1.75 or cell_y > 32.0:
+        return None
+
+    score_y, origin_y = grid_axis_score_and_origin(profile_y, cell_y)
+    score_x, origin_x = grid_axis_score_and_origin(profile_x, cell_x)
+    if score_x <= 0 and score_y <= 0:
+        return None
+
+    axis_ratio = max(cell_x, cell_y) / max(1e-6, min(cell_x, cell_y))
+    square_penalty = abs(cell_x - cell_y) / max(cell_x, cell_y, 1e-6)
+    score = score_y * 0.58 + score_x * 0.42 - square_penalty * 0.6
+    if score <= 0:
+        return None
+
+    return {
+        "width": width,
+        "height": height,
+        "cellSize": round((cell_x + cell_y) * 0.5, 3),
+        "cellX": round(cell_x, 3),
+        "cellY": round(cell_y, 3),
+        "score": round(score, 4),
+        "scoreX": round(score_x, 4),
+        "scoreY": round(score_y, 4),
+        "confidence": detector_confidence(score_x, score_y, axis_ratio),
+        "axisRatio": round(axis_ratio, 3),
+        "originX": round(origin_x, 3),
+        "originY": round(origin_y, 3),
+        "sourceAxis": source_axis,
+    }
+
+
 def detect_mixel_grid_variants(
     image: Image.Image,
     max_output_width: int = 4096,
@@ -1929,6 +2190,8 @@ def detect_mixel_grid_variants(
     source_width, source_height = source.size
     min_height = max(min_output_size, int(math.ceil(source_height / 24.0)))
     max_height = min(max_output_height, max(min_output_size, int(math.floor(source_height / 2.0))))
+    min_width = max(min_output_size, int(math.ceil(source_width / 24.0)))
+    max_width = min(max_output_width, max(min_output_size, int(math.floor(source_width / 2.0))))
     scored: list[dict[str, float | int]] = []
 
     for height in range(min_height, max_height + 1):
@@ -1938,38 +2201,194 @@ def detect_mixel_grid_variants(
         width = max(min_output_size, int(round(source_width / cell_size)))
         if width > max_output_width:
             continue
-        cell_x = source_width / width
-        score_y, origin_y = grid_axis_score_and_origin(profile_y, cell_size)
-        score_x, origin_x = grid_axis_score_and_origin(profile_x, cell_x)
-        square_penalty = abs(cell_x - cell_size) / max(cell_size, 1e-6)
-        score = score_y * 0.58 + score_x * 0.42 - square_penalty * 0.6
-        if score <= 0:
+        candidate = grid_candidate(width, height, source_width, source_height, profile_x, profile_y, "y")
+        if candidate is None:
             continue
-        scored.append(
-            {
-                "width": width,
-                "height": height,
-                "cellSize": round((cell_size + cell_x) * 0.5, 3),
-                "score": round(score, 4),
-                "originX": round(origin_x, 3),
-                "originY": round(origin_y, 3),
-            }
-        )
+        scored.append(candidate)
+
+    for width in range(min_width, max_width + 1):
+        cell_size = source_width / width
+        if cell_size < 1.75 or cell_size > 32.0:
+            continue
+        height = max(min_output_size, int(round(source_height / cell_size)))
+        if height > max_output_height:
+            continue
+        candidate = grid_candidate(width, height, source_width, source_height, profile_x, profile_y, "x")
+        if candidate is None:
+            continue
+        scored.append(candidate)
 
     ranked = sorted(scored, key=lambda item: float(item["score"]), reverse=True)
     variants: list[dict[str, float | int]] = []
+    seen: set[tuple[int, int]] = set()
     for item in ranked:
-        if any(abs(int(item["height"]) - int(existing["height"])) < 4 for existing in variants):
+        key = (int(item["width"]), int(item["height"]))
+        if key in seen:
             continue
+        if any(
+            abs(int(item["height"]) - int(existing["height"])) < 4
+            and abs(int(item["width"]) - int(existing["width"])) < 4
+            for existing in variants
+        ):
+            continue
+        seen.add(key)
         variants.append(item)
         if len(variants) >= max_variants:
             break
     return variants
 
 
+def uniform_grid_cuts(limit: int, cells: int) -> object:
+    if np is None:
+        return []
+    return np.rint(np.linspace(0, limit, cells + 1)).astype(np.int64)
+
+
+def sanitize_grid_cuts(cuts, limit: int, cells: int):
+    if np is None:
+        return []
+    clean = np.asarray(cuts, dtype=np.int64).copy()
+    if clean.shape[0] != cells + 1:
+        return uniform_grid_cuts(limit, cells)
+    clean[0] = 0
+    clean[-1] = limit
+    for index in range(1, cells):
+        minimum = clean[index - 1] + 1
+        maximum = limit - (cells - index)
+        if clean[index] < minimum:
+            clean[index] = minimum
+        elif clean[index] > maximum:
+            clean[index] = maximum
+    return clean
+
+
+def elastic_grid_cuts(
+    profile,
+    limit: int,
+    cells: int,
+    origin: float,
+    cell_size: float,
+    search_ratio: float = 0.35,
+    min_window: float = 2.0,
+    strength_threshold: float = 0.50,
+):
+    if np is None or cells <= 0 or limit <= 0:
+        return []
+    profile_array = np.asarray(profile, dtype=np.float64)
+    if profile_array.size == 0:
+        return uniform_grid_cuts(limit, cells)
+
+    cuts = uniform_grid_cuts(limit, cells)
+    window = max(min_window, cell_size * search_ratio)
+    mean_strength = float(profile_array.mean()) if profile_array.size else 0.0
+    strength_gate = mean_strength * strength_threshold
+
+    for index in range(1, cells):
+        target = origin + index * cell_size
+        fallback = int(round(target))
+        fallback = max(index, min(limit - (cells - index), fallback))
+        start_cut = max(index, int(math.floor(target - window)))
+        end_cut = min(limit - (cells - index), int(math.ceil(target + window)))
+        if end_cut < start_cut:
+            cuts[index] = fallback
+            continue
+
+        start_profile = max(0, start_cut - 1)
+        end_profile = min(profile_array.size - 1, end_cut - 1)
+        if end_profile < start_profile:
+            cuts[index] = fallback
+            continue
+
+        span = profile_array[start_profile : end_profile + 1]
+        if span.size <= 0:
+            cuts[index] = fallback
+            continue
+        best_offset = int(span.argmax())
+        best_value = float(span[best_offset])
+        cuts[index] = start_profile + best_offset + 1 if best_value >= strength_gate else fallback
+
+    return sanitize_grid_cuts(cuts, limit, cells)
+
+
+def stabilize_grid_cuts(cuts, limit: int, cells: int, mode: str):
+    if np is None:
+        return []
+    clean = sanitize_grid_cuts(cuts, limit, cells)
+    if mode == "off" or cells <= 1:
+        return clean
+
+    widths = np.diff(clean).astype(np.float64)
+    if widths.size == 0 or float(widths.min()) < 1:
+        return uniform_grid_cuts(limit, cells)
+
+    expected = limit / max(1, cells)
+    max_ratio = float(widths.max() / max(1.0, widths.min()))
+    max_deviation = float(np.max(np.abs(widths - expected)) / max(1.0, expected))
+    ratio_limit = 2.25 if mode == "aggressive" else 1.80
+    deviation_limit = 0.90 if mode == "aggressive" else 0.62
+    if max_ratio <= ratio_limit and max_deviation <= deviation_limit:
+        return clean
+
+    uniform = uniform_grid_cuts(limit, cells)
+    if mode == "aggressive":
+        blended = np.rint(clean * 0.60 + uniform * 0.40).astype(np.int64)
+        return sanitize_grid_cuts(blended, limit, cells)
+    return uniform
+
+
+def grid_snap_cuts(
+    image: Image.Image,
+    config: PixelArtConfig,
+) -> tuple[object, object, dict[str, float | str]]:
+    profile_x, profile_y = grid_edge_profiles(image)
+    cell_w = image.width / config.target_width
+    cell_h = image.height / config.target_height
+    score_x, origin_x = grid_axis_score_and_origin(profile_x, cell_w)
+    score_y, origin_y = grid_axis_score_and_origin(profile_y, cell_h)
+    topology = config.grid_snap_topology if config.grid_snap_topology in {"uniform", "elastic"} else "elastic"
+    axis_stabilization = (
+        config.grid_snap_axis_stabilization
+        if config.grid_snap_axis_stabilization in {"off", "conservative", "aggressive"}
+        else "conservative"
+    )
+
+    if topology == "elastic":
+        col_cuts = elastic_grid_cuts(profile_x, image.width, config.target_width, origin_x, cell_w)
+        row_cuts = elastic_grid_cuts(profile_y, image.height, config.target_height, origin_y, cell_h)
+        col_cuts = stabilize_grid_cuts(col_cuts, image.width, config.target_width, axis_stabilization)
+        row_cuts = stabilize_grid_cuts(row_cuts, image.height, config.target_height, axis_stabilization)
+    else:
+        col_cuts = uniform_grid_cuts(image.width, config.target_width)
+        row_cuts = uniform_grid_cuts(image.height, config.target_height)
+
+    axis_ratio = max(cell_w, cell_h) / max(1e-6, min(cell_w, cell_h))
+    metadata = {
+        "topology": topology,
+        "axisStabilization": axis_stabilization,
+        "scoreX": round(score_x, 4),
+        "scoreY": round(score_y, 4),
+        "confidence": detector_confidence(score_x, score_y, axis_ratio),
+        "axisRatio": round(axis_ratio, 3),
+        "cellX": round(cell_w, 3),
+        "cellY": round(cell_h, 3),
+    }
+    return col_cuts, row_cuts, metadata
+
+
 def grid_snap_image(image: Image.Image, config: PixelArtConfig) -> Image.Image:
     source = image.convert("RGB")
-    if np is None or _grid_snap_center_numba is None or _grid_snap_vote_numba is None:
+    if config.target_width > source.width or config.target_height > source.height:
+        return source.resize(
+            (config.target_width, config.target_height),
+            resample=Image.Resampling.BOX,
+        )
+    if (
+        np is None
+        or _grid_snap_center_numba is None
+        or _grid_snap_vote_numba is None
+        or _grid_snap_center_cuts_numba is None
+        or _grid_snap_vote_cuts_numba is None
+    ):
         return source.resize(
             (config.target_width, config.target_height),
             resample=Image.Resampling.BOX,
@@ -1982,32 +2401,25 @@ def grid_snap_image(image: Image.Image, config: PixelArtConfig) -> Image.Image:
         vote_source = source
     vote_array = np.asarray(vote_source, dtype=np.uint8)
 
-    profile_x, profile_y = grid_edge_profiles(source)
-    cell_w = source.width / config.target_width
-    cell_h = source.height / config.target_height
-    _score_x, origin_x = grid_axis_score_and_origin(profile_x, cell_w)
-    _score_y, origin_y = grid_axis_score_and_origin(profile_y, cell_h)
+    col_cuts, row_cuts, _metadata = grid_snap_cuts(source, config)
+    if len(col_cuts) != config.target_width + 1 or len(row_cuts) != config.target_height + 1:
+        return source.resize(
+            (config.target_width, config.target_height),
+            resample=Image.Resampling.BOX,
+        )
 
     if config.grid_snap_method == "center":
-        output = _grid_snap_center_numba(
+        output = _grid_snap_center_cuts_numba(
             vote_array,
-            config.target_width,
-            config.target_height,
-            origin_x,
-            origin_y,
-            cell_w,
-            cell_h,
+            col_cuts,
+            row_cuts,
         )
     else:
-        output = _grid_snap_vote_numba(
+        output = _grid_snap_vote_cuts_numba(
             vote_array,
             detail_array,
-            config.target_width,
-            config.target_height,
-            origin_x,
-            origin_y,
-            cell_w,
-            cell_h,
+            col_cuts,
+            row_cuts,
             config.grid_snap_dark_threshold,
             1 if config.grid_snap_method == "dark-stroke" else 0,
         )
@@ -2593,6 +3005,77 @@ def collect_weighted_colors(
     return list(weights.items())
 
 
+def kmeans_palette(
+    weighted_colors: list[tuple[tuple[int, int, int], float]],
+    colors: int,
+    iterations: int = 18,
+) -> list[tuple[int, int, int]]:
+    if colors <= 0 or not weighted_colors:
+        return []
+    if len(weighted_colors) <= colors:
+        return sorted((color for color, _weight in weighted_colors), key=srgb_luma)
+    if np is None:
+        return median_cut_palette(weighted_colors, colors)
+
+    data = np.asarray([color for color, _weight in weighted_colors], dtype=np.float64)
+    weights = np.asarray([max(0.0, weight) for _color, weight in weighted_colors], dtype=np.float64)
+    if float(weights.sum()) <= 0:
+        weights = np.ones(data.shape[0], dtype=np.float64)
+
+    k = min(colors, data.shape[0])
+    centers = np.empty((k, 3), dtype=np.float64)
+    first_index = int(np.argmax(weights))
+    centers[0] = data[first_index]
+    distance2 = np.sum((data - centers[0]) * (data - centers[0]), axis=1)
+
+    for center_index in range(1, k):
+        score = distance2 * np.sqrt(weights)
+        next_index = int(np.argmax(score))
+        centers[center_index] = data[next_index]
+        next_distance2 = np.sum((data - centers[center_index]) * (data - centers[center_index]), axis=1)
+        distance2 = np.minimum(distance2, next_distance2)
+
+    labels = np.zeros(data.shape[0], dtype=np.int64)
+    for _iteration in range(iterations):
+        distances = np.sum((data[:, None, :] - centers[None, :, :]) ** 2, axis=2)
+        next_labels = np.argmin(distances, axis=1)
+        if np.array_equal(next_labels, labels) and _iteration > 0:
+            break
+        labels = next_labels
+
+        next_centers = centers.copy()
+        for center_index in range(k):
+            mask = labels == center_index
+            if not np.any(mask):
+                farthest_index = int(np.argmax(np.min(distances, axis=1) * np.sqrt(weights)))
+                next_centers[center_index] = data[farthest_index]
+                continue
+            cluster_weights = weights[mask]
+            next_centers[center_index] = np.average(data[mask], axis=0, weights=cluster_weights)
+
+        movement = float(np.max(np.sum((centers - next_centers) * (centers - next_centers), axis=1)))
+        centers = next_centers
+        if movement < 0.01:
+            break
+
+    palette = [
+        (
+            clamp_channel(center[0]),
+            clamp_channel(center[1]),
+            clamp_channel(center[2]),
+        )
+        for center in centers
+    ]
+    palette = merge_palette_slots([], palette, colors)
+    if len(palette) < colors:
+        palette = merge_palette_slots(
+            palette,
+            median_cut_palette(weighted_colors, colors - len(palette)),
+            colors,
+        )
+    return sorted(palette[:colors], key=srgb_luma)
+
+
 def quantize_median_cut_rgb(
     image: Image.Image,
     colors: int,
@@ -2684,6 +3167,18 @@ def quantize_median_cut_rgb(
             min_saturation=interesting_min_saturation,
             min_value=interesting_min_value,
         )
+        return (
+            map_to_palette(
+                image,
+                palette,
+                hue_match_weight=hue_match_weight,
+                color_distance=color_distance,
+            ),
+            palette,
+        )
+
+    if palette_strategy == "kmeans":
+        palette = kmeans_palette(weighted_colors, colors)
         return (
             map_to_palette(
                 image,
@@ -5239,6 +5734,27 @@ def build_default_preview_path(output: Path, scale: int) -> Path:
     return output.with_name(f"{output.stem}@{scale}x{output.suffix}")
 
 
+def collect_batch_inputs(input_dir: Path) -> list[Path]:
+    return sorted(
+        path
+        for path in input_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in SUPPORTED_INPUT_EXTENSIONS
+    )
+
+
+def output_path_for_input(input_path: Path, input_root: Path, output_root: Path) -> Path:
+    relative = input_path.relative_to(input_root)
+    return output_root / relative.with_suffix(".png")
+
+
+def output_is_inside_input(input_dir: Path, output_dir: Path) -> bool:
+    try:
+        output_dir.resolve().relative_to(input_dir.resolve())
+    except ValueError:
+        return False
+    return True
+
+
 def prepare_palette_source(config: PixelArtConfig) -> tuple[Image.Image, Image.Image] | tuple[None, None]:
     if config.palette_source is None:
         return None, None
@@ -5265,6 +5781,7 @@ def prepare_palette_source(config: PixelArtConfig) -> tuple[Image.Image, Image.I
 def convert(input_path: Path, output_path: Path, preview_path: Path | None, config: PixelArtConfig) -> dict:
     image = Image.open(input_path)
     base = prepare_base_image(image, config)
+    alpha_channel = prepare_alpha_channel(image, config)
     edge_mask = build_sobel_edge_mask(base, threshold=config.edge_threshold)
     processed = bilateral_smooth(
         base,
@@ -5311,6 +5828,7 @@ def convert(input_path: Path, output_path: Path, preview_path: Path | None, conf
 
     output_luma = luma_mean(pixel_art)
     output_saturation = luma_weighted_saturation_mean(pixel_art)
+    pixel_art = attach_alpha(pixel_art, alpha_channel)
     dither = effective_dither_mode(config)
     dither_disabled_reason = (
         "grid_quantize_first"
@@ -5341,9 +5859,13 @@ def convert(input_path: Path, output_path: Path, preview_path: Path | None, conf
         "grid_snap_method": config.grid_snap_method if config.grid_snap_enabled else None,
         "grid_snap_quantize_first": config.grid_snap_quantize_first if config.grid_snap_enabled else None,
         "grid_snap_dark_threshold": config.grid_snap_dark_threshold if config.grid_snap_enabled else None,
+        "grid_snap_topology": config.grid_snap_topology if config.grid_snap_enabled else None,
+        "grid_snap_axis_stabilization": config.grid_snap_axis_stabilization if config.grid_snap_enabled else None,
         "preview_scale": config.preview_scale,
         "preserve_luma": config.preserve_luma,
         "preserve_saturation": config.preserve_saturation,
+        "preserve_alpha": config.preserve_alpha,
+        "alpha_preserved": alpha_channel is not None,
         "palette_source": str(config.palette_source) if config.palette_source else None,
         "bilateral_radius": config.bilateral_radius,
         "bilateral_mode": config.bilateral_mode,
@@ -5400,12 +5922,38 @@ def convert(input_path: Path, output_path: Path, preview_path: Path | None, conf
     return manifest
 
 
+def convert_batch(input_dir: Path, output_dir: Path, config: PixelArtConfig, write_previews: bool) -> dict:
+    if output_is_inside_input(input_dir, output_dir):
+        raise ValueError("--output directory must not be inside the input directory")
+
+    inputs = collect_batch_inputs(input_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifests: list[dict] = []
+    errors: list[dict[str, str]] = []
+    for input_path in inputs:
+        output_path = output_path_for_input(input_path, input_dir, output_dir)
+        preview_path = build_default_preview_path(output_path, config.preview_scale) if write_previews and config.preview_scale > 1 else None
+        try:
+            manifests.append(convert(input_path, output_path, preview_path, config))
+        except Exception as exc:  # pragma: no cover - batch report path.
+            errors.append({"input": str(input_path), "error": str(exc)})
+
+    return {
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "files_found": len(inputs),
+        "files_written": len(manifests),
+        "errors": errors,
+        "manifests": [item["manifest"] for item in manifests],
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Snap generated art into a strict low-resolution pixel-art grid."
     )
-    parser.add_argument("input", type=Path, help="Source PNG/JPG/WebP image.")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Logical low-res PNG output.")
+    parser.add_argument("input", type=Path, help="Source PNG/JPG/WebP image or input directory.")
+    parser.add_argument("-o", "--output", type=Path, required=True, help="Logical low-res PNG output, or output directory for batch input.")
     parser.add_argument(
         "--size",
         type=parse_size,
@@ -5483,6 +6031,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum luma contrast for dark-stroke grid snap, default: 38.",
     )
     parser.add_argument(
+        "--grid-topology",
+        choices=("uniform", "elastic"),
+        default="elastic",
+        help="Grid cut topology for --grid-snap, default: elastic.",
+    )
+    parser.add_argument(
+        "--grid-axis-stabilization",
+        choices=("off", "conservative", "aggressive"),
+        default="conservative",
+        help="Repair unstable elastic grid cuts, default: conservative.",
+    )
+    parser.add_argument(
         "--palette-source",
         type=Path,
         default=None,
@@ -5549,6 +6109,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--palette-strategy",
         choices=(
             "median-cut",
+            "kmeans",
             "interesting",
             "hue-mass",
             "spectrum-peaks",
@@ -5562,7 +6123,7 @@ def build_parser() -> argparse.ArgumentParser:
             "projected-graft",
         ),
         default="median-cut",
-        help="Palette builder: median-cut, interesting, hue-mass, spectrum-peaks, shadow-spectrum, or projected variants.",
+        help="Palette builder: median-cut, kmeans, interesting, hue-mass, spectrum-peaks, shadow-spectrum, or projected variants.",
     )
     parser.add_argument(
         "--color-distance",
@@ -5695,6 +6256,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable luma-weighted saturation matching against the cropped/resized source.",
     )
     parser.add_argument(
+        "--no-preserve-alpha",
+        action="store_true",
+        help="Drop source alpha instead of preserving it through crop, resize, or grid snap.",
+    )
+    parser.add_argument(
         "--preview",
         type=Path,
         default=None,
@@ -5781,8 +6347,11 @@ def main() -> None:
         grid_snap_method=args.grid_snap_method,
         grid_snap_quantize_first=args.grid_quantize_first,
         grid_snap_dark_threshold=args.grid_dark_threshold,
+        grid_snap_topology=args.grid_topology,
+        grid_snap_axis_stabilization=args.grid_axis_stabilization,
         preserve_luma=not args.no_preserve_luma,
         preserve_saturation=not args.no_preserve_saturation,
+        preserve_alpha=not args.no_preserve_alpha,
         palette_source=args.palette_source,
         bilateral_radius=args.bilateral_radius,
         bilateral_mode=args.bilateral_mode,
@@ -5814,14 +6383,25 @@ def main() -> None:
         mixel_cleanup_max_saturation=args.mixel_cleanup_max_saturation,
     )
 
+    if args.input.is_dir():
+        if args.preview is not None:
+            parser.error("--preview can only be used with a single input file")
+        report = convert_batch(args.input, args.output, config, write_previews=not args.no_preview)
+        print(json.dumps(report, indent=2))
+        return
+
+    output_path = args.output
+    if output_path.exists() and output_path.is_dir():
+        output_path = output_path / args.input.with_suffix(".png").name
+
     preview_path = None
     if not args.no_preview:
         if args.preview:
             preview_path = args.preview
         elif args.preview_scale > 1:
-            preview_path = build_default_preview_path(args.output, args.preview_scale)
+            preview_path = build_default_preview_path(output_path, args.preview_scale)
 
-    manifest = convert(args.input, args.output, preview_path, config)
+    manifest = convert(args.input, output_path, preview_path, config)
     print(json.dumps(manifest, indent=2))
 
 

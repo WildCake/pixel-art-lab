@@ -40,6 +40,7 @@ When resizing pixel art outside or inside this tool, use nearest-neighbor only f
 `Grid Snap` is for GPT/image-generation pseudo-pixel art where the model drew enlarged "mixels" instead of a true logical pixel grid. When enabled, the normal resize stage is replaced by a hidden-grid transfer stage:
 
 - `auto size from detected mixels` estimates likely source-pixel cell sizes from horizontal and vertical edge profiles, then exposes the best candidate logical resolutions through the `Auto variant` slider. Turning this off keeps manual `Width` and `Height` fully in control.
+- Auto detection now scores both horizontal and vertical source axes, reports confidence, x/y ratio, and source-axis metadata, then uses elastic grid cuts with conservative stabilization. If elastic cuts become unstable, the axis is repaired or falls back to uniform cuts instead of producing warped cells.
 - `quantize before grid vote` is disabled by default. When enabled, it limits the source colors with the active Palette Builder before cell voting, so tiny intended colors survive as palette colors instead of being replaced by a separate hidden median-cut palette. Dithering is disabled while this is on because every voted cell has already been snapped into the active palette before the final palette stage.
 - `cell mode` chooses the most common quantized color inside each detected output cell.
 - `nearest center sample` takes the nearest source color at the center of each output cell and avoids averaging.
@@ -52,6 +53,7 @@ For a large environment concept, start with `Grid Snap` enabled, `auto size from
 Palette strategies from previous experiments are available:
 
 - `median-cut`
+- `kmeans`
 - `interesting`
 - `hue-mass`
 - `spectrum-peaks`
@@ -76,7 +78,7 @@ Projected strategies reserve rare tonal cells as well as saturated hue accents. 
 
 New conversion strategies must put expensive per-pixel, per-tile, per-unique-color mapping, dithering, cleanup, and scoring work in NumPy or Numba first. If a step needs an explicit per-pixel loop, implement it as a Numba kernel before exposing it in the GUI. Python should only orchestrate small palette-slot allocation steps and keep a pure-Python fallback for missing optional dependencies. Do not add new Python pixel loops to the hot render path.
 
-Current accelerated coverage includes projected mass/rare palette projection, projected edge/anchor/frontier/graft color mapping, projected island/frontier tile scoring, grid-snap center/mode/dark-stroke cell transfer, rare-color guarded palette mapping, ordered and Floyd-Steinberg dithering, standard and edge-safe bilateral smoothing, edge sharpen blending, luma/saturation preservation, low-detail snapping, and single-pixel mixel cleanup.
+Current accelerated coverage includes projected mass/rare palette projection, projected edge/anchor/frontier/graft color mapping, projected island/frontier tile scoring, grid-snap center/mode/dark-stroke cell transfer, elastic cut rendering, rare-color guarded palette mapping, ordered and Floyd-Steinberg dithering, standard and edge-safe bilateral smoothing, edge sharpen blending, luma/saturation/alpha preservation, low-detail snapping, and single-pixel mixel cleanup.
 
 ## Edge Modes
 

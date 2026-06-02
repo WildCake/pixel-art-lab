@@ -7,10 +7,12 @@ It is designed for agent/operator work: an agent starts the local service, the o
 ## Key Capabilities
 
 - Automatic hidden-grid detection estimates the source mixel cell size and suggests candidate real pixel resolutions.
-- Grid Snap transfers enlarged AI pseudo-pixels to a strict pixel grid without averaging away one-pixel strokes.
+- Grid Snap transfers enlarged AI pseudo-pixels to a strict pixel grid without averaging away one-pixel strokes, with elastic cut detection and conservative axis stabilization enabled by default.
 - Adaptive ordered dithering applies texture only where it helps smooth areas, while avoiding detailed edges and objects.
 - Edge-safe bilateral smoothing can reduce noisy flat areas while refusing to blur across contours, black strokes, and local detail jumps.
 - Palette builders preserve rare colors, including saturated accents and pale neutral tones such as masks, whites, grays, and ivory highlights.
+- A deterministic `kmeans` palette builder is available as a baseline against the richer projected strategies.
+- Source alpha is preserved by default through crop, resize, grid snap, and export.
 - RGB/OKLab palette distance modes, edge-aware palette weighting, rare hue protection, and tonal rare-cell reservation are available for comparison.
 - Live preview supports cursor-centered zoom, clamped panning, full-frame hold-before compare, and local `Z` hover comparison.
 - All processing is local to the Python server; imported images are not uploaded to a remote service.
@@ -106,6 +108,18 @@ python3 pixel_art_grid.py input.png \
   --colors 64 \
   --palette-strategy projected-rare \
   --dither none \
+  --preview-scale 2
+```
+
+For agent batch work, pass an input directory and output directory. Pixel Art Lab mirrors subfolders and writes PNG outputs, palettes, manifests, and previews when requested:
+
+```sh
+python3 pixel_art_grid.py source-dir \
+  --output converted-dir \
+  --size 320x180 \
+  --colors 64 \
+  --grid-snap \
+  --palette-strategy kmeans \
   --preview-scale 2
 ```
 
