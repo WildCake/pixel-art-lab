@@ -82,6 +82,31 @@ def test_auto_grid_prefers_true_upscale_resolution() -> None:
     assert int(variants[0]["height"]) == base.height
 
 
+def test_auto_grid_includes_standard_detail_widths() -> None:
+    base = Image.new("RGB", (384, 216))
+    pixels = base.load()
+    for y in range(base.height):
+        for x in range(base.width):
+            pixels[x, y] = (
+                (x * 23 + y * 5) % 256,
+                (x * 11 + y * 29) % 256,
+                (x * 31 + y * 17) % 256,
+            )
+
+    source = base.resize((1152, 648), Image.Resampling.NEAREST)
+    variants = pag.detect_mixel_grid_variants(
+        source,
+        max_output_width=4096,
+        max_output_height=1024,
+        min_output_size=16,
+        max_variants=9,
+    )
+    sizes = {(int(variant["width"]), int(variant["height"])) for variant in variants}
+
+    assert (768, 432) in sizes
+    assert (1024, 576) in sizes
+
+
 def test_cell_mode_bins_near_colors(settings: dict) -> None:
     image = Image.new("RGB", (8, 8))
     pixels = image.load()
@@ -197,6 +222,7 @@ def main() -> None:
     assert "axisRatio" in result["stats"]["gridVariant"]
     test_auto_grid_includes_native_detail_candidate()
     test_auto_grid_prefers_true_upscale_resolution()
+    test_auto_grid_includes_standard_detail_widths()
 
     uniform_settings = {
         **settings,

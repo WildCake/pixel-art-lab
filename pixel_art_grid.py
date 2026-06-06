@@ -53,6 +53,8 @@ EDGE_SAFE_BILATERAL_MAX_BLEND = 0.92
 GRID_VOTE_BIN_BITS = 5
 GRID_DETECT_MIN_CELL_SIZE = 1.0
 GRID_DETECT_MAX_CELL_SIZE = 32.0
+GRID_STANDARD_WIDTH_CANDIDATES = (768, 1024)
+GRID_STANDARD_WIDTH_MIN_SCORE = 0.08
 SUPPORTED_INPUT_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -2373,6 +2375,29 @@ def native_grid_candidate(
     }
 
 
+def standard_width_grid_candidates(
+    source_width: int,
+    source_height: int,
+    max_output_width: int,
+    max_output_height: int,
+    min_output_size: int,
+    features_x,
+    features_y,
+) -> list[dict[str, float | int | str]]:
+    candidates: list[dict[str, float | int | str]] = []
+    for width in GRID_STANDARD_WIDTH_CANDIDATES:
+        if width < min_output_size or width > max_output_width:
+            continue
+        height = int(round(source_height * (width / source_width)))
+        if height < min_output_size or height > max_output_height:
+            continue
+        candidate = grid_candidate(width, height, source_width, source_height, features_x, features_y, "standard-width")
+        if candidate is None or float(candidate["score"]) < GRID_STANDARD_WIDTH_MIN_SCORE:
+            continue
+        candidates.append(candidate)
+    return candidates
+
+
 def is_near_grid_duplicate(
     candidate: dict[str, float | int | str],
     variants: list[dict[str, float | int | str]],
@@ -2406,6 +2431,15 @@ def detect_mixel_grid_variants(
     profile_x, profile_y = grid_edge_profiles(source)
     features_x = grid_axis_features(profile_x)
     features_y = grid_axis_features(profile_y)
+    standard_candidates = standard_width_grid_candidates(
+        source_width,
+        source_height,
+        max_output_width,
+        max_output_height,
+        min_output_size,
+        features_x,
+        features_y,
+    )
     min_height = max(min_output_size, int(math.ceil(source_height / GRID_DETECT_MAX_CELL_SIZE)))
     max_height = min(max_output_height, max(min_output_size, int(math.floor(source_height / GRID_DETECT_MIN_CELL_SIZE))))
     min_width = max(min_output_size, int(math.ceil(source_width / GRID_DETECT_MAX_CELL_SIZE)))
@@ -2439,16 +2473,35 @@ def detect_mixel_grid_variants(
     ranked = sorted(scored, key=lambda item: float(item["score"]), reverse=True)
     variants: list[dict[str, float | int | str]] = []
     seen: set[tuple[int, int]] = set()
-    for item in ranked:
+
+    def add_variant(item: dict[str, float | int | str]) -> bool:
         key = (int(item["width"]), int(item["height"]))
         if key in seen:
-            continue
+            return False
         if is_near_grid_duplicate(item, variants):
-            continue
+            return False
         seen.add(key)
         variants.append(item)
-        if len(variants) >= max_variants:
+        return True
+
+    native_slot = 1 if detail_candidate is not None and max_variants > 0 else 0
+    body_limit = max(0, max_variants - native_slot)
+    head_limit = min(3, body_limit)
+
+    for item in ranked:
+        if len(variants) >= head_limit:
             break
+        add_variant(item)
+
+    for item in standard_candidates:
+        if len(variants) >= body_limit:
+            break
+        add_variant(item)
+
+    for item in ranked:
+        if len(variants) >= body_limit:
+            break
+        add_variant(item)
 
     if detail_candidate is not None and max_variants > 0 and not is_near_grid_duplicate(detail_candidate, variants):
         if len(variants) < max_variants:
