@@ -35,6 +35,33 @@ def build_rgba_fixture() -> Image.Image:
     return image
 
 
+def test_auto_grid_includes_native_detail_candidate() -> None:
+    image = Image.new("RGB", (96, 64))
+    pixels = image.load()
+    for y in range(image.height):
+        for x in range(image.width):
+            pixels[x, y] = (
+                (x * 37 + y * 11) % 256,
+                (x * 17 + y * 43) % 256,
+                (x * 29 + y * 7) % 256,
+            )
+
+    variants = pag.detect_mixel_grid_variants(
+        image,
+        max_output_width=4096,
+        max_output_height=1024,
+        min_output_size=16,
+        max_variants=9,
+    )
+
+    assert any(
+        int(variant["width"]) == image.width
+        and int(variant["height"]) == image.height
+        and variant["sourceAxis"] == "native"
+        for variant in variants
+    )
+
+
 def test_cell_mode_bins_near_colors(settings: dict) -> None:
     image = Image.new("RGB", (8, 8))
     pixels = image.load()
@@ -147,6 +174,7 @@ def main() -> None:
     assert result["stats"]["gridAxisStabilization"] == "conservative"
     assert result["stats"]["gridVariant"]["confidence"] >= 0
     assert "axisRatio" in result["stats"]["gridVariant"]
+    test_auto_grid_includes_native_detail_candidate()
 
     uniform_settings = {
         **settings,

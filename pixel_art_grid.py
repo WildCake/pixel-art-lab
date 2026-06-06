@@ -51,6 +51,8 @@ EDGE_SAFE_BILATERAL_DARK_LUMA = 58.0
 EDGE_SAFE_BILATERAL_DARK_CONTRAST = 24.0
 EDGE_SAFE_BILATERAL_MAX_BLEND = 0.92
 GRID_VOTE_BIN_BITS = 5
+GRID_DETECT_MIN_CELL_SIZE = 1.0
+GRID_DETECT_MAX_CELL_SIZE = 32.0
 SUPPORTED_INPUT_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -2099,7 +2101,7 @@ def grid_edge_profiles(image: Image.Image) -> tuple[object, object]:
 
 
 def grid_axis_score_and_origin(profile, period: float) -> tuple[float, float]:
-    if np is None or len(profile) < 4 or period < 1.5:
+    if np is None or len(profile) < 4 or period < GRID_DETECT_MIN_CELL_SIZE:
         return 0.0, 0.0
 
     profile_array = np.asarray(profile, dtype=np.float64)
@@ -2162,7 +2164,12 @@ def grid_candidate(
         return None
     cell_x = source_width / width
     cell_y = source_height / height
-    if cell_x < 1.75 or cell_x > 32.0 or cell_y < 1.75 or cell_y > 32.0:
+    if (
+        cell_x < GRID_DETECT_MIN_CELL_SIZE
+        or cell_x > GRID_DETECT_MAX_CELL_SIZE
+        or cell_y < GRID_DETECT_MIN_CELL_SIZE
+        or cell_y > GRID_DETECT_MAX_CELL_SIZE
+    ):
         return None
 
     score_y, origin_y = grid_axis_score_and_origin(profile_y, cell_y)
@@ -2193,28 +2200,95 @@ def grid_candidate(
     }
 
 
+def native_grid_candidate(
+    source_width: int,
+    source_height: int,
+    max_output_width: int,
+    max_output_height: int,
+    min_output_size: int,
+) -> dict[str, float | int | str] | None:
+    if source_width < min_output_size or source_height < min_output_size:
+        return None
+    if max_output_width < min_output_size or max_output_height < min_output_size:
+        return None
+
+    scale = min(max_output_width / source_width, max_output_height / source_height, 1.0)
+    if scale <= 0:
+        return None
+
+    width = min(max_output_width, max(min_output_size, int(round(source_width * scale))))
+    height = min(max_output_height, max(min_output_size, int(round(source_height * scale))))
+    if width < min_output_size or height < min_output_size:
+        return None
+
+    cell_x = source_width / width
+    cell_y = source_height / height
+    if (
+        cell_x < GRID_DETECT_MIN_CELL_SIZE
+        or cell_x > GRID_DETECT_MAX_CELL_SIZE
+        or cell_y < GRID_DETECT_MIN_CELL_SIZE
+        or cell_y > GRID_DETECT_MAX_CELL_SIZE
+    ):
+        return None
+
+    axis_ratio = max(cell_x, cell_y) / max(1e-6, min(cell_x, cell_y))
+    return {
+        "width": width,
+        "height": height,
+        "cellSize": round((cell_x + cell_y) * 0.5, 3),
+        "cellX": round(cell_x, 3),
+        "cellY": round(cell_y, 3),
+        "score": 0.0,
+        "scoreX": 0.0,
+        "scoreY": 0.0,
+        "confidence": 0.0,
+        "axisRatio": round(axis_ratio, 3),
+        "originX": 0.0,
+        "originY": 0.0,
+        "sourceAxis": "native",
+    }
+
+
+def is_near_grid_duplicate(
+    candidate: dict[str, float | int | str],
+    variants: list[dict[str, float | int | str]],
+) -> bool:
+    return any(
+        abs(int(candidate["height"]) - int(existing["height"])) < 4
+        and abs(int(candidate["width"]) - int(existing["width"])) < 4
+        for existing in variants
+    )
+
+
 def detect_mixel_grid_variants(
     image: Image.Image,
     max_output_width: int = 4096,
     max_output_height: int = 1024,
     min_output_size: int = 16,
     max_variants: int = 9,
-) -> list[dict[str, float | int]]:
+) -> list[dict[str, float | int | str]]:
+    source_width, source_height = image.size
+    detail_candidate = native_grid_candidate(
+        source_width,
+        source_height,
+        max_output_width,
+        max_output_height,
+        min_output_size,
+    )
     if np is None:
-        return []
+        return [detail_candidate] if detail_candidate is not None and max_variants > 0 else []
 
     source = image.convert("RGB")
     profile_x, profile_y = grid_edge_profiles(source)
-    source_width, source_height = source.size
-    min_height = max(min_output_size, int(math.ceil(source_height / 24.0)))
-    max_height = min(max_output_height, max(min_output_size, int(math.floor(source_height / 2.0))))
-    min_width = max(min_output_size, int(math.ceil(source_width / 24.0)))
-    max_width = min(max_output_width, max(min_output_size, int(math.floor(source_width / 2.0))))
-    scored: list[dict[str, float | int]] = []
+    min_height = max(min_output_size, int(math.ceil(source_height / GRID_DETECT_MAX_CELL_SIZE)))
+    max_height = min(max_output_height, max(min_output_size, int(math.floor(source_height / GRID_DETECT_MIN_CELL_SIZE))))
+    min_width = max(min_output_size, int(math.ceil(source_width / GRID_DETECT_MAX_CELL_SIZE)))
+    max_width = min(max_output_width, max(min_output_size, int(math.floor(source_width / GRID_DETECT_MIN_CELL_SIZE))))
+    scored: list[dict[str, float | int | str]] = []
 
     for height in range(min_height, max_height + 1):
         cell_size = source_height / height
-        if cell_size < 1.75 or cell_size > 32.0:
+        if cell_size < GRID_DETECT_MIN_CELL_SIZE or cell_size > GRID_DETECT_MAX_CELL_SIZE:
             continue
         width = max(min_output_size, int(round(source_width / cell_size)))
         if width > max_output_width:
@@ -2226,7 +2300,7 @@ def detect_mixel_grid_variants(
 
     for width in range(min_width, max_width + 1):
         cell_size = source_width / width
-        if cell_size < 1.75 or cell_size > 32.0:
+        if cell_size < GRID_DETECT_MIN_CELL_SIZE or cell_size > GRID_DETECT_MAX_CELL_SIZE:
             continue
         height = max(min_output_size, int(round(source_height / cell_size)))
         if height > max_output_height:
@@ -2237,22 +2311,24 @@ def detect_mixel_grid_variants(
         scored.append(candidate)
 
     ranked = sorted(scored, key=lambda item: float(item["score"]), reverse=True)
-    variants: list[dict[str, float | int]] = []
+    variants: list[dict[str, float | int | str]] = []
     seen: set[tuple[int, int]] = set()
     for item in ranked:
         key = (int(item["width"]), int(item["height"]))
         if key in seen:
             continue
-        if any(
-            abs(int(item["height"]) - int(existing["height"])) < 4
-            and abs(int(item["width"]) - int(existing["width"])) < 4
-            for existing in variants
-        ):
+        if is_near_grid_duplicate(item, variants):
             continue
         seen.add(key)
         variants.append(item)
         if len(variants) >= max_variants:
             break
+
+    if detail_candidate is not None and max_variants > 0 and not is_near_grid_duplicate(detail_candidate, variants):
+        if len(variants) < max_variants:
+            variants.append(detail_candidate)
+        else:
+            variants[-1] = detail_candidate
     return variants
 
 
