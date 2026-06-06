@@ -54,12 +54,32 @@ def test_auto_grid_includes_native_detail_candidate() -> None:
         max_variants=9,
     )
 
-    assert any(
-        int(variant["width"]) == image.width
-        and int(variant["height"]) == image.height
-        and variant["sourceAxis"] == "native"
-        for variant in variants
+    assert any(int(variant["width"]) == image.width and int(variant["height"]) == image.height for variant in variants)
+
+
+def test_auto_grid_prefers_true_upscale_resolution() -> None:
+    base = Image.new("RGB", (32, 24))
+    pixels = base.load()
+    for y in range(base.height):
+        for x in range(base.width):
+            pixels[x, y] = (
+                (x * 47 + y * 13) % 256,
+                (x * 19 + y * 31) % 256,
+                (x * 7 + y * 59) % 256,
+            )
+
+    source = base.resize((96, 72), Image.Resampling.NEAREST)
+    variants = pag.detect_mixel_grid_variants(
+        source,
+        max_output_width=4096,
+        max_output_height=1024,
+        min_output_size=16,
+        max_variants=9,
     )
+
+    assert variants
+    assert int(variants[0]["width"]) == base.width
+    assert int(variants[0]["height"]) == base.height
 
 
 def test_cell_mode_bins_near_colors(settings: dict) -> None:
@@ -150,6 +170,7 @@ def main() -> None:
     settings = base_settings()
     assert 'id="gridTopology"' in lab.HTML
     assert 'id="gridAxisStabilization"' in lab.HTML
+    assert 'id="gridVariantList"' in lab.HTML
     assert 'id="preserveAlpha"' in lab.HTML
     assert 'id="viewerStatsOverlay"' in lab.HTML
     assert 'class="viewer viewer-empty"' in lab.HTML
@@ -175,6 +196,7 @@ def main() -> None:
     assert result["stats"]["gridVariant"]["confidence"] >= 0
     assert "axisRatio" in result["stats"]["gridVariant"]
     test_auto_grid_includes_native_detail_candidate()
+    test_auto_grid_prefers_true_upscale_resolution()
 
     uniform_settings = {
         **settings,

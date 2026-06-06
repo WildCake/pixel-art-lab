@@ -988,6 +988,36 @@ HTML = r"""<!doctype html>
       font-size: 12px;
       line-height: 1.4;
     }
+    .grid-summary {
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.35;
+      min-height: 18px;
+    }
+    .grid-variant-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .grid-variant-chip {
+      width: auto;
+      min-height: 26px;
+      padding: 0 9px;
+      border-radius: 6px;
+      border: 1px solid #37445d;
+      background: #111827;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .grid-variant-chip.selected {
+      background: #e8edf7;
+      border-color: #f8fbff;
+      color: #111827;
+    }
     .metric {
       color: var(--text);
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1194,7 +1224,8 @@ HTML = r"""<!doctype html>
           <span class="label-title">Auto variant <span class="field-hint">candidate grid</span></span>
           <input id="gridVariant" data-setting type="range" min="0" max="8" step="1" value="0" data-tooltip="Choose between detector candidates after auto-size render.">
         </label>
-        <div id="gridInfo" class="small">Auto grid size is optional; manual Width/Height still works when it is off.</div>
+        <div id="gridInfo" class="grid-summary">Auto grid size is optional; manual Width/Height still works when it is off.</div>
+        <div id="gridVariantList" class="grid-variant-list" aria-live="polite"></div>
       </fieldset>
 
       <fieldset>
@@ -1498,6 +1529,7 @@ HTML = r"""<!doctype html>
     const paletteEl = document.getElementById('palette');
     const aspectInfo = document.getElementById('aspectInfo');
     const gridInfo = document.getElementById('gridInfo');
+    const gridVariantList = document.getElementById('gridVariantList');
     const customPresetSelect = document.getElementById('customPresetSelect');
     const presetNameInput = document.getElementById('presetName');
     let activeUiTooltipTarget = null;
@@ -2271,6 +2303,39 @@ HTML = r"""<!doctype html>
       });
     }
 
+    function formatGridResolution(item) {
+      return `${item.width}x${item.height}`;
+    }
+
+    function selectedGridVariantIndex(variants, selected) {
+      if (!selected) return 0;
+      const index = variants.findIndex((item) =>
+        Number(item.width) === Number(selected.width) &&
+        Number(item.height) === Number(selected.height) &&
+        String(item.sourceAxis || '') === String(selected.sourceAxis || '')
+      );
+      return index >= 0 ? index : 0;
+    }
+
+    function renderGridVariantList(variants, selectedIndex) {
+      gridVariantList.innerHTML = '';
+      if (!variants.length) return;
+      variants.forEach((item, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `grid-variant-chip${index === selectedIndex ? ' selected' : ''}`;
+        button.textContent = formatGridResolution(item);
+        button.dataset.tooltip = index === selectedIndex ? 'Selected auto grid size.' : 'Use this auto grid size.';
+        button.addEventListener('click', () => {
+          const slider = settingEl('gridVariant');
+          if (Number(slider.value) === index) return;
+          slider.value = String(index);
+          scheduleRender(0);
+        });
+        gridVariantList.appendChild(button);
+      });
+    }
+
     async function renderNow() {
       if (!state.imageLoaded) return;
       state.renderSeq += 1;
@@ -2298,31 +2363,29 @@ HTML = r"""<!doctype html>
         draw();
         drawPalette(result.palette || []);
         const s = result.stats || {};
-        const cacheText = s.cacheHit ? ', cached' : (s.stageCacheHits ? `, ${s.stageCacheHits} stage hits` : '');
-        const ditherText = s.ditherDisabledReason
-          ? ', dither off: grid quantize-first'
-          : (s.dither && s.dither !== 'none' ? `, dither ${s.dither}` : '');
-        const edgeText = s.edgeModeDisabledReason === 'ditherContour'
-          ? ', edge Sobel: contour needs dither off'
-          : '';
-        const alphaText = s.alphaPreserved ? ', alpha' : '';
-        viewerStatsLine.textContent = `${state.width}x${state.height}, ${s.colorsWritten}/${s.colorsRequested} colors, ${s.elapsedMs} ms${cacheText}${ditherText}${edgeText}${alphaText}, luma ${s.outputLuma}, sat ${s.outputSaturation}`;
         const variants = Array.isArray(s.gridVariants) ? s.gridVariants : [];
         settingEl('gridVariant').max = Math.max(0, variants.length - 1);
+        let selectedVariantIndex = 0;
         if (s.gridAutoSize && s.gridVariant) {
+          selectedVariantIndex = selectedGridVariantIndex(variants, s.gridVariant);
+          settingEl('gridVariant').value = String(selectedVariantIndex);
           setDimensionInputs(state.width, state.height);
         }
         if (s.gridSnap && s.gridVariant) {
-          const v = s.gridVariant;
-          const top = variants.slice(0, 5).map((item, index) => `${index}: ${item.width}x${item.height} @${item.cellSize}px c${item.confidence}`).join(' | ');
-          viewerDetectorLine.textContent = `grid auto c${v.confidence} ${s.gridTopology}/${s.gridAxisStabilization}`;
-          gridInfo.textContent = `selected ${v.width}x${v.height}, source mixel ${v.cellSize}px, score ${v.score}, x/y ${v.axisRatio}. ${top}`;
+          viewerDetectorLine.textContent = 'Auto grid';
+          viewerStatsLine.textContent = `${state.width}x${state.height}`;
+          gridInfo.textContent = `Selected ${state.width}x${state.height}`;
+          renderGridVariantList(variants, selectedVariantIndex);
         } else if (settingEl('gridSnap').checked) {
-          viewerDetectorLine.textContent = `grid manual ${s.gridTopology || 'uniform'}/${s.gridAxisStabilization || 'off'}`;
-          gridInfo.textContent = 'Grid snap uses manual Width/Height. Enable auto size to choose detector variants.';
+          viewerDetectorLine.textContent = 'Manual grid';
+          viewerStatsLine.textContent = `${state.width}x${state.height}`;
+          gridInfo.textContent = `Manual size ${state.width}x${state.height}`;
+          renderGridVariantList([], 0);
         } else {
-          viewerDetectorLine.textContent = 'grid idle';
-          gridInfo.textContent = 'Auto grid size is optional; manual Width/Height still works when it is off.';
+          viewerDetectorLine.textContent = 'Output';
+          viewerStatsLine.textContent = `${state.width}x${state.height}`;
+          gridInfo.textContent = `Output size ${state.width}x${state.height}`;
+          renderGridVariantList([], 0);
         }
         setStatus('live', 'status-ok');
       } catch (err) {

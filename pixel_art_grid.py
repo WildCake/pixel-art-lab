@@ -2100,6 +2100,130 @@ def grid_edge_profiles(image: Image.Image) -> tuple[object, object]:
     return profile_x, profile_y
 
 
+def grid_axis_features(profile) -> dict[str, object]:
+    if np is None:
+        return {"profile": [], "smooth": [], "normalized": [], "spread": 0.0, "peakPositions": []}
+
+    profile_array = np.asarray(profile, dtype=np.float64)
+    if profile_array.size <= 0:
+        return {"profile": profile_array, "smooth": profile_array, "normalized": profile_array, "spread": 0.0, "peakPositions": []}
+
+    smooth = profile_array.copy()
+    if smooth.size >= 3:
+        smooth[1:-1] = profile_array[1:-1] * 0.50 + (profile_array[:-2] + profile_array[2:]) * 0.25
+
+    spread = float(smooth.std())
+    if spread <= 1e-6:
+        normalized = np.zeros_like(smooth)
+        peak_positions = np.asarray([], dtype=np.float64)
+    else:
+        normalized = (smooth - float(smooth.mean())) / spread
+        threshold = float(np.percentile(smooth, 78))
+        if smooth.size >= 5:
+            local_peaks = (
+                (smooth[1:-1] >= smooth[:-2])
+                & (smooth[1:-1] >= smooth[2:])
+                & (smooth[1:-1] >= threshold)
+            )
+            peak_positions = (np.flatnonzero(local_peaks) + 1).astype(np.float64)
+        else:
+            peak_positions = np.asarray([], dtype=np.float64)
+
+    return {
+        "profile": profile_array,
+        "smooth": smooth,
+        "normalized": normalized,
+        "spread": spread,
+        "peakPositions": peak_positions,
+    }
+
+
+def grid_axis_phase_support(features: dict[str, object], period: float) -> float:
+    if np is None or period < 1.35:
+        return 0.0
+    peaks = np.asarray(features.get("peakPositions", []), dtype=np.float64)
+    if peaks.size < 4:
+        return 0.0
+
+    phase = (peaks % period) / period
+    angles = phase * (math.pi * 2.0)
+    vector_strength = math.hypot(float(np.cos(angles).mean()), float(np.sin(angles).mean()))
+    length = max(1.0, float(np.asarray(features.get("profile", [])).shape[0]))
+    expected_boundaries = max(4.0, length / period)
+    coverage = clamp_float(float(peaks.size) / (expected_boundaries * 0.18), 0.0, 1.0)
+    return clamp_float(vector_strength * coverage, 0.0, 1.0)
+
+
+def grid_axis_autocorrelation_support(features: dict[str, object], period: float) -> float:
+    if np is None or period < 1.5:
+        return 0.0
+    normalized = np.asarray(features.get("normalized", []), dtype=np.float64)
+    if normalized.size < 8:
+        return 0.0
+
+    base_lag = int(math.floor(period))
+    next_lag = base_lag + 1
+    if base_lag < 1 or base_lag >= normalized.size:
+        return 0.0
+
+    def lag_score(lag: int) -> float:
+        if lag < 1 or lag >= normalized.size:
+            return 0.0
+        left = normalized[:-lag]
+        right = normalized[lag:]
+        if left.size <= 0 or right.size <= 0:
+            return 0.0
+        return float(np.dot(left, right) / max(1, left.size))
+
+    blend = period - base_lag
+    score = lag_score(base_lag) * (1.0 - blend) + lag_score(next_lag) * blend
+    return clamp_float(score, 0.0, 1.0)
+
+
+def grid_axis_score_and_origin_from_features(features: dict[str, object], period: float) -> tuple[float, float]:
+    if np is None or period < GRID_DETECT_MIN_CELL_SIZE:
+        return 0.0, 0.0
+    profile_array = np.asarray(features.get("smooth", []), dtype=np.float64)
+    if profile_array.size < 4:
+        return 0.0, 0.0
+
+    spread = float(features.get("spread", 0.0))
+    if spread <= 1e-6:
+        return 0.0, 0.0
+
+    length = profile_array.shape[0]
+    best_score = -1.0e9
+    best_origin = 0.0
+    phase_count = max(8, min(28, int(round(period * 4.0))))
+    xs = np.arange(length, dtype=np.float64)
+    for phase_index in range(phase_count):
+        origin = ((phase_index / phase_count) - 0.5) * period
+        positions = origin + np.arange(1, int((length - origin) / period) + 1, dtype=np.float64) * period
+        positions = positions[(positions >= 0) & (positions <= length - 1)]
+        if positions.size < 4:
+            continue
+        boundary = np.interp(positions, xs, profile_array)
+        interior_positions = positions + period * 0.5
+        interior_positions = interior_positions[interior_positions <= length - 1]
+        if interior_positions.size < 4:
+            continue
+        interior = np.interp(interior_positions, xs, profile_array)
+        boundary_mean = float(boundary.mean())
+        interior_mean = float(interior.mean())
+        boundary_peak = float(np.percentile(boundary, 78))
+        score = ((0.65 * boundary_mean + 0.35 * boundary_peak) - interior_mean) / spread
+        score *= math.log1p(float(positions.size)) ** 0.35
+        if score > best_score:
+            best_score = score
+            best_origin = origin
+
+    phase_support = grid_axis_phase_support(features, period)
+    autocorrelation_support = grid_axis_autocorrelation_support(features, period)
+    periodic_support = 0.64 * phase_support + 0.36 * autocorrelation_support
+    score = max(0.0, best_score) * (0.82 + 0.18 * periodic_support) + periodic_support * 0.42
+    return max(0.0, score), best_origin
+
+
 def grid_axis_score_and_origin(profile, period: float) -> tuple[float, float]:
     if np is None or len(profile) < 4 or period < GRID_DETECT_MIN_CELL_SIZE:
         return 0.0, 0.0
@@ -2172,8 +2296,8 @@ def grid_candidate(
     ):
         return None
 
-    score_y, origin_y = grid_axis_score_and_origin(profile_y, cell_y)
-    score_x, origin_x = grid_axis_score_and_origin(profile_x, cell_x)
+    score_y, origin_y = grid_axis_score_and_origin_from_features(profile_y, cell_y)
+    score_x, origin_x = grid_axis_score_and_origin_from_features(profile_x, cell_x)
     if score_x <= 0 and score_y <= 0:
         return None
 
@@ -2280,6 +2404,8 @@ def detect_mixel_grid_variants(
 
     source = image.convert("RGB")
     profile_x, profile_y = grid_edge_profiles(source)
+    features_x = grid_axis_features(profile_x)
+    features_y = grid_axis_features(profile_y)
     min_height = max(min_output_size, int(math.ceil(source_height / GRID_DETECT_MAX_CELL_SIZE)))
     max_height = min(max_output_height, max(min_output_size, int(math.floor(source_height / GRID_DETECT_MIN_CELL_SIZE))))
     min_width = max(min_output_size, int(math.ceil(source_width / GRID_DETECT_MAX_CELL_SIZE)))
@@ -2293,7 +2419,7 @@ def detect_mixel_grid_variants(
         width = max(min_output_size, int(round(source_width / cell_size)))
         if width > max_output_width:
             continue
-        candidate = grid_candidate(width, height, source_width, source_height, profile_x, profile_y, "y")
+        candidate = grid_candidate(width, height, source_width, source_height, features_x, features_y, "y")
         if candidate is None:
             continue
         scored.append(candidate)
@@ -2305,7 +2431,7 @@ def detect_mixel_grid_variants(
         height = max(min_output_size, int(round(source_height / cell_size)))
         if height > max_output_height:
             continue
-        candidate = grid_candidate(width, height, source_width, source_height, profile_x, profile_y, "x")
+        candidate = grid_candidate(width, height, source_width, source_height, features_x, features_y, "x")
         if candidate is None:
             continue
         scored.append(candidate)
