@@ -53,7 +53,12 @@ def main() -> None:
             assert opened.size == (8, 6)
             payload = lab.image_response_payload(opened, image_path.name, image_path)
             assert payload["sourcePath"] == "ui/backgrounds/server-open.png"
+            assert payload["saveTargetPath"] == "ui/backgrounds/server-open_PIXEL_LAB.png"
             assert payload["canSaveInPlace"] is True
+            assert lab.pixel_lab_save_path(image_path).name == "server-open_PIXEL_LAB.png"
+            suffixed_path = nested / "server-open_PIXEL_LAB.png"
+            Image.new("RGB", (8, 6), (12, 34, 56)).save(suffixed_path)
+            assert lab.pixel_lab_save_path(suffixed_path).name == "server-open_PIXEL_LAB.png"
 
             png_bytes = lab.data_url_to_png_bytes(data_url(Image.new("RGBA", (3, 2), (1, 2, 3, 255))))
             assert png_bytes.startswith(b"\x89PNG\r\n\x1a\n")

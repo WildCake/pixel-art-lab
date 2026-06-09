@@ -51,6 +51,7 @@ MAX_SESSION_COUNT = 128
 SERVER_BROWSER_ROOT = SCRIPT_DIR.parent / "assets" / "generated"
 SERVER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 SERVER_THUMBNAIL_SIZE = (160, 120)
+PIXEL_LAB_SAVE_SUFFIX = "_PIXEL_LAB"
 PALETTE_STRATEGIES = (
     "median-cut",
     "kmeans",
@@ -233,6 +234,20 @@ def open_server_image(path: Path) -> Image.Image:
     return image.convert("RGBA") if pag.image_has_alpha(image) else image.convert("RGB")
 
 
+def pixel_lab_save_path(source_path: Path) -> Path:
+    root = server_root()
+    server_relative_path(source_path)
+    stem = source_path.stem
+    if stem.lower().endswith(PIXEL_LAB_SAVE_SUFFIX.lower()):
+        target_path = source_path.with_suffix(".png")
+    else:
+        target_path = source_path.with_name(f"{stem}{PIXEL_LAB_SAVE_SUFFIX}.png")
+    resolved = target_path.resolve()
+    if not path_is_relative_to(resolved, root):
+        raise ValueError("save path must stay inside assets/generated")
+    return resolved
+
+
 def server_thumbnail_png(path: Path) -> bytes:
     if not is_supported_server_image(path):
         raise ValueError("server file must be a supported image")
@@ -249,6 +264,7 @@ def server_thumbnail_png(path: Path) -> bytes:
 
 def image_response_payload(image: Image.Image, name: str, source_path: Path | None = None) -> dict[str, Any]:
     target_width, target_height = source_aspect_dimensions(image.width, image.height)
+    save_target_path = pixel_lab_save_path(source_path) if source_path is not None else None
     return {
         "ok": True,
         "name": name,
@@ -258,7 +274,8 @@ def image_response_payload(image: Image.Image, name: str, source_path: Path | No
         "targetHeight": target_height,
         "maxTargetHeight": MAX_OUTPUT_HEIGHT,
         "sourcePath": server_relative_path(source_path) if source_path is not None else None,
-        "canSaveInPlace": source_path is not None,
+        "saveTargetPath": server_relative_path(save_target_path) if save_target_path is not None else None,
+        "canSaveInPlace": save_target_path is not None,
     }
 
 
@@ -1821,6 +1838,7 @@ HTML = r"""<!doctype html>
       sourceAspect: 0,
       sourceName: '',
       sourcePath: null,
+      saveTargetPath: null,
       canSaveInPlace: false,
       outputImg: null,
       originalImg: null,
@@ -1887,10 +1905,10 @@ HTML = r"""<!doctype html>
     }
 
     function updateSaveInPlaceAvailability() {
-      const enabled = Boolean(state.outputDataUrl && state.canSaveInPlace && state.sourcePath);
+      const enabled = Boolean(state.outputDataUrl && state.canSaveInPlace && state.saveTargetPath);
       saveInPlaceButton.disabled = !enabled;
       saveInPlaceButton.dataset.tooltip = enabled
-        ? `Save over assets/generated/${state.sourcePath}.`
+        ? `Save over assets/generated/${state.saveTargetPath}.`
         : 'Open an image from server and render it before using Save.';
     }
 
@@ -2671,7 +2689,8 @@ HTML = r"""<!doctype html>
       state.imageLoaded = true;
       state.sourceName = result.name || '';
       state.sourcePath = result.sourcePath || null;
-      state.canSaveInPlace = Boolean(result.canSaveInPlace && result.sourcePath);
+      state.saveTargetPath = result.saveTargetPath || null;
+      state.canSaveInPlace = Boolean(result.canSaveInPlace && result.saveTargetPath);
       state.originalImg = originalImg;
       state.originalDataUrl = originalDataUrl;
       state.outputDataUrl = null;
@@ -2947,13 +2966,17 @@ HTML = r"""<!doctype html>
     }
 
     async function saveCurrentInPlace() {
-      if (!state.outputDataUrl || !state.canSaveInPlace || !state.sourcePath) {
+      if (!state.outputDataUrl || !state.canSaveInPlace || !state.saveTargetPath) {
         setStatus('open a server image first', 'status-error');
         return;
       }
       try {
         setStatus('saving...', 'status-busy');
         const result = await postJson(appPath('api/save'), { data: state.outputDataUrl });
+        state.sourcePath = result.sourcePath || result.path || state.sourcePath;
+        state.saveTargetPath = result.saveTargetPath || result.path || state.saveTargetPath;
+        state.canSaveInPlace = Boolean(state.saveTargetPath);
+        updateSaveInPlaceAvailability();
         setStatus(`saved ${result.width}x${result.height}`, 'status-ok');
       } catch (err) {
         setStatus(err.message || String(err), 'status-error');
@@ -3085,13 +3108,15 @@ class LabHandler(BaseHTTPRequestHandler):
             state = self.current_state()
             with state.lock:
                 image = state.image
+                save_target_path = pixel_lab_save_path(state.source_path) if state.source_path else None
                 payload = {
                     "loaded": image is not None,
                     "name": state.name,
                     "width": image.width if image else 0,
                     "height": image.height if image else 0,
                     "sourcePath": server_relative_path(state.source_path) if state.source_path else None,
-                    "canSaveInPlace": state.source_path is not None,
+                    "saveTargetPath": server_relative_path(save_target_path) if save_target_path else None,
+                    "canSaveInPlace": save_target_path is not None,
                 }
             self.send_json(payload)
             return
@@ -3178,20 +3203,23 @@ class LabHandler(BaseHTTPRequestHandler):
                     raise ValueError("open an image from server before using Save")
                 if not is_supported_server_image(source_path):
                     raise ValueError("source server file is not a supported image")
-                source_path.write_bytes(png_bytes)
-                image = open_server_image(source_path)
+                save_target_path = pixel_lab_save_path(source_path)
+                save_target_path.write_bytes(png_bytes)
+                image = open_server_image(save_target_path)
                 with state.render_lock:
                     with state.lock:
                         state.image = image
-                        state.name = source_path.name
-                        state.source_path = source_path
+                        state.name = save_target_path.name
+                        state.source_path = save_target_path
                         state.uploaded_at = time.time()
                         state.version += 1
                         state.cache.clear()
                 self.send_json(
                     {
                         "ok": True,
-                        "path": server_relative_path(source_path),
+                        "path": server_relative_path(save_target_path),
+                        "sourcePath": server_relative_path(save_target_path),
+                        "saveTargetPath": server_relative_path(pixel_lab_save_path(save_target_path)),
                         "bytes": len(png_bytes),
                         "width": image.width,
                         "height": image.height,
