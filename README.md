@@ -29,7 +29,7 @@ It is designed for agent/operator work: an agent starts the local service, the o
 - Topbar `Hold Before` button that draws the imported original over the whole output only while pressed.
 - Designer-styled local tooltips for controls and palette swatches; browser-native `title` tooltips are not used.
 - Local-only processing. Images are uploaded only to the local Python process.
-- `Open from server` browses images under the sibling project folder `assets/generated/**` when Pixel Art Lab is run from this repository layout.
+- `Open from server` browses images under the sibling project folder `assets/generated/**` with thumbnail previews when Pixel Art Lab is run from this repository layout.
 - `Save` writes the current output back over the server image opened through `Open from server`; `Save As` keeps the previous browser download behavior.
 - Custom browser presets for every conversion setting, including disabled conditional controls.
 

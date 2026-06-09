@@ -50,6 +50,7 @@ SESSION_COOKIE_NAME = "pixel_art_lab_session"
 MAX_SESSION_COUNT = 128
 SERVER_BROWSER_ROOT = SCRIPT_DIR.parent / "assets" / "generated"
 SERVER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+SERVER_THUMBNAIL_SIZE = (160, 120)
 PALETTE_STRATEGIES = (
     "median-cut",
     "kmeans",
@@ -230,6 +231,20 @@ def open_server_image(path: Path) -> Image.Image:
     image = Image.open(path)
     image.load()
     return image.convert("RGBA") if pag.image_has_alpha(image) else image.convert("RGB")
+
+
+def server_thumbnail_png(path: Path) -> bytes:
+    if not is_supported_server_image(path):
+        raise ValueError("server file must be a supported image")
+    if path.stat().st_size > MAX_UPLOAD_BYTES:
+        raise ValueError("server file is too large")
+    with Image.open(path) as image:
+        image.load()
+        thumbnail = image.convert("RGBA") if pag.image_has_alpha(image) else image.convert("RGB")
+    thumbnail.thumbnail(SERVER_THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    thumbnail.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
 
 
 def image_response_payload(image: Image.Image, name: str, source_path: Path | None = None) -> dict[str, Any]:
@@ -1249,6 +1264,10 @@ HTML = r"""<!doctype html>
       font-size: 12px;
     }
     .server-browser-body {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+      gap: 10px;
+      align-content: start;
       min-height: 0;
       overflow: auto;
       padding: 8px;
@@ -1260,10 +1279,21 @@ HTML = r"""<!doctype html>
       align-items: center;
       width: 100%;
       min-height: 40px;
-      margin: 0 0 6px;
+      margin: 0;
       text-align: left;
       border-color: #30394c;
       background: #121827;
+    }
+    .server-entry-folder {
+      grid-column: 1 / -1;
+    }
+    .server-entry-file {
+      grid-template-columns: 1fr;
+      grid-template-rows: 108px minmax(34px, auto) auto;
+      gap: 7px;
+      align-items: stretch;
+      min-height: 174px;
+      padding: 8px;
     }
     .server-entry:hover {
       background: #1a2334;
@@ -1274,11 +1304,37 @@ HTML = r"""<!doctype html>
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .server-entry-file span {
+      display: -webkit-box;
+      min-height: 34px;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      white-space: normal;
+    }
     .server-entry small {
       color: var(--faint);
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 11px;
       white-space: nowrap;
+    }
+    .server-thumbnail {
+      width: 100%;
+      height: 108px;
+      object-fit: contain;
+      border: 1px solid #252d3d;
+      border-radius: 6px;
+      background: #070a10;
+    }
+    .server-thumbnail-fallback {
+      display: grid;
+      place-items: center;
+      width: 100%;
+      height: 108px;
+      border: 1px solid #252d3d;
+      border-radius: 6px;
+      color: var(--faint);
+      background: #070a10;
+      font-size: 12px;
     }
     .server-browser-empty {
       padding: 24px;
@@ -2635,6 +2691,49 @@ HTML = r"""<!doctype html>
       return `${bytes} B`;
     }
 
+    function serverThumbnailUrl(entry) {
+      const version = Number(entry.mtime) || Date.now();
+      return `${appPath('api/server/thumbnail')}?path=${encodeURIComponent(entry.path)}&v=${version}`;
+    }
+
+    function createServerFolderEntry(label, meta, onClick) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'server-entry server-entry-folder';
+      const name = document.createElement('span');
+      name.textContent = label;
+      const metaNode = document.createElement('small');
+      metaNode.textContent = meta;
+      button.append(name, metaNode);
+      button.addEventListener('click', onClick);
+      return button;
+    }
+
+    function createServerFileEntry(entry) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'server-entry server-entry-file';
+      const thumbnail = document.createElement('img');
+      thumbnail.className = 'server-thumbnail';
+      thumbnail.src = serverThumbnailUrl(entry);
+      thumbnail.alt = entry.name;
+      thumbnail.loading = 'lazy';
+      thumbnail.decoding = 'async';
+      thumbnail.addEventListener('error', () => {
+        const fallback = document.createElement('div');
+        fallback.className = 'server-thumbnail-fallback';
+        fallback.textContent = 'preview unavailable';
+        thumbnail.replaceWith(fallback);
+      }, { once: true });
+      const name = document.createElement('span');
+      name.textContent = entry.name;
+      const meta = document.createElement('small');
+      meta.textContent = formatBytes(entry.size);
+      button.append(thumbnail, name, meta);
+      button.addEventListener('click', () => openServerFile(entry.path));
+      return button;
+    }
+
     async function loadServerFolder(path) {
       try {
         setStatus('loading files...', 'status-busy');
@@ -2642,12 +2741,7 @@ HTML = r"""<!doctype html>
         serverBrowserPath.textContent = data.path ? `assets/generated/${data.path}` : 'assets/generated';
         serverBrowserBody.innerHTML = '';
         if (data.path) {
-          const up = document.createElement('button');
-          up.type = 'button';
-          up.className = 'server-entry';
-          up.innerHTML = '<span>..</span><small>folder</small>';
-          up.addEventListener('click', () => loadServerFolder(data.parent || ''));
-          serverBrowserBody.appendChild(up);
+          serverBrowserBody.appendChild(createServerFolderEntry('..', 'folder', () => loadServerFolder(data.parent || '')));
         }
         const entries = Array.isArray(data.entries) ? data.entries : [];
         if (!entries.length && !data.path) {
@@ -2657,17 +2751,11 @@ HTML = r"""<!doctype html>
           serverBrowserBody.appendChild(empty);
         }
         entries.forEach((entry) => {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = 'server-entry';
-          const name = document.createElement('span');
-          name.textContent = entry.name;
-          const meta = document.createElement('small');
-          meta.textContent = entry.type === 'dir' ? 'folder' : formatBytes(entry.size);
-          button.append(name, meta);
-          if (entry.type === 'dir') button.addEventListener('click', () => loadServerFolder(entry.path));
-          else button.addEventListener('click', () => openServerFile(entry.path));
-          serverBrowserBody.appendChild(button);
+          if (entry.type === 'dir') {
+            serverBrowserBody.appendChild(createServerFolderEntry(entry.name, 'folder', () => loadServerFolder(entry.path)));
+          } else {
+            serverBrowserBody.appendChild(createServerFileEntry(entry));
+          }
         });
         setStatus('files loaded', 'status-ok');
       } catch (err) {
@@ -3004,6 +3092,11 @@ class LabHandler(BaseHTTPRequestHandler):
             content = server_path.read_bytes()
             content_type = mimetypes.guess_type(server_path.name)[0] or "application/octet-stream"
             self.send_bytes(content, content_type)
+            return
+        if path == "/api/server/thumbnail":
+            query = parse_qs(parsed.query)
+            server_path = resolve_server_path(query.get("path", [""])[0])
+            self.send_bytes(server_thumbnail_png(server_path), "image/png")
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 

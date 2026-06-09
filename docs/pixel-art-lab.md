@@ -25,7 +25,7 @@ Each browser gets an isolated session cookie. Loaded images, render caches, and 
 
 ## Server Files
 
-`Open from server` lists image files under the sibling repository folder `assets/generated/**`. The API rejects paths outside that root, including `..` traversal. Opening a server image records its original server path in the current browser session.
+`Open from server` lists image files under the sibling repository folder `assets/generated/**` as thumbnail cards. The API rejects paths outside that root, including `..` traversal. Opening a server image records its original server path in the current browser session.
 
 `Save` is enabled only after a server image has been opened and rendered. It writes the current output PNG back over that same server file. For ordinary local file uploads, use `Save As`; it keeps the previous browser download behavior and does not write to the user's local source path.
 

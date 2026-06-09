@@ -30,6 +30,8 @@ def main() -> None:
         nested.mkdir(parents=True)
         image_path = nested / "server-open.png"
         Image.new("RGB", (8, 6), (12, 34, 56)).save(image_path)
+        large_image_path = nested / "wide-server-open.png"
+        Image.new("RGB", (640, 480), (78, 90, 123)).save(large_image_path)
 
         old_root = lab.SERVER_BROWSER_ROOT
         old_sessions = lab.SESSIONS.copy()
@@ -56,6 +58,11 @@ def main() -> None:
             png_bytes = lab.data_url_to_png_bytes(data_url(Image.new("RGBA", (3, 2), (1, 2, 3, 255))))
             assert png_bytes.startswith(b"\x89PNG\r\n\x1a\n")
 
+            thumbnail_bytes = lab.server_thumbnail_png(large_image_path)
+            assert thumbnail_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+            thumbnail = Image.open(io.BytesIO(thumbnail_bytes))
+            assert thumbnail.size == lab.SERVER_THUMBNAIL_SIZE
+
             try:
                 lab.resolve_server_path("../outside.png")
             except ValueError as exc:
@@ -70,6 +77,8 @@ def main() -> None:
 
             assert 'id="openFromServer"' in lab.HTML
             assert 'id="saveInPlace"' in lab.HTML
+            assert "api/server/thumbnail" in lab.HTML
+            assert "server-entry-file" in lab.HTML
             assert ">Save As<" in lab.HTML
         finally:
             lab.SERVER_BROWSER_ROOT = old_root
