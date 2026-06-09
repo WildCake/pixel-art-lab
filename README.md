@@ -6,6 +6,7 @@ It is designed for agent/operator work: an agent starts the local service, the o
 
 ## Key Capabilities
 
+- Browser sessions are isolated by cookie, so multiple operators can use one running service at the same time without sharing the loaded source image, render cache, or render lock.
 - Automatic hidden-grid detection estimates the source mixel cell size and suggests candidate real pixel resolutions.
 - Grid Snap transfers enlarged AI pseudo-pixels to a strict pixel grid without averaging away one-pixel strokes; the UI can switch between the phase-aligned legacy uniform grid and elastic cut detection with selectable axis repair.
 - Adaptive ordered dithering applies texture only where it helps smooth areas, while avoiding detailed edges and objects.
@@ -28,6 +29,8 @@ It is designed for agent/operator work: an agent starts the local service, the o
 - Topbar `Hold Before` button that draws the imported original over the whole output only while pressed.
 - Designer-styled local tooltips for controls and palette swatches; browser-native `title` tooltips are not used.
 - Local-only processing. Images are uploaded only to the local Python process.
+- `Open from server` browses images under the sibling project folder `assets/generated/**` when Pixel Art Lab is run from this repository layout.
+- `Save` writes the current output back over the server image opened through `Open from server`; `Save As` keeps the previous browser download behavior.
 - Custom browser presets for every conversion setting, including disabled conditional controls.
 
 ## Requirements
@@ -58,12 +61,12 @@ If `8767` is busy, the service automatically tries the next 49 ports.
 
 ## Basic Workflow
 
-1. Import one image in `Start`.
+1. Import one image in `Start`, or use `Open from server` to browse the local `assets/generated/**` tree.
 2. Set width or height in `Output & Dither`. With `lock source aspect` enabled, the other side updates after Enter or field blur.
 3. Choose a palette strategy in `Palette Builder`.
 4. Enable `Grid Snap` in `Hidden Grid` for generated art that contains enlarged pseudo-pixels.
 5. Wheel zooms at the cursor. Drag pans. Hold `Hold Before` to overlay the full imported original, or hold `Z` over the preview to compare a local original/output region.
-6. Export the PNG from `Export` or save your complete current controls as a JSON settings file.
+6. Use `Save` to overwrite the opened server image, or `Save As` to download a PNG. You can also save your complete current controls as a JSON settings file.
 
 ## Examples
 

@@ -10,6 +10,8 @@ python3 pixel_art_lab.py --port 8767
 
 If the requested port is busy, the tool searches the next available port. Use `--no-browser` when you want to open the URL manually.
 
+Each browser gets an isolated session cookie. Loaded images, render caches, and render locks are per session, so one long render does not block unrelated operators in other browser sessions.
+
 ## Workflow
 
 1. Load one source image with the file picker.
@@ -20,6 +22,12 @@ If the requested port is busy, the tool searches the next available port. Use `-
 6. Hold `Hold Before` in the topbar to draw the imported original over the whole output using the same crop, pan, and zoom; release it to immediately return to the rendered result.
 7. Hold `Z` while hovering the output to show a split tooltip. The left side samples the imported original image at its own resolution, mapped to the same normalized region as the output; the right side is the output at the exact same logical coordinates.
 8. Export the current PNG or settings JSON from the Export panel.
+
+## Server Files
+
+`Open from server` lists image files under the sibling repository folder `assets/generated/**`. The API rejects paths outside that root, including `..` traversal. Opening a server image records its original server path in the current browser session.
+
+`Save` is enabled only after a server image has been opened and rendered. It writes the current output PNG back over that same server file. For ordinary local file uploads, use `Save As`; it keeps the previous browser download behavior and does not write to the user's local source path.
 
 ## Presets And Settings Export
 

@@ -8,6 +8,9 @@ import base64
 import io
 import json
 import math
+import mimetypes
+import re
+import secrets
 import socket
 import sys
 import threading
@@ -16,10 +19,11 @@ import webbrowser
 from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from http import HTTPStatus
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 try:
     from PIL import Image, ImageChops, ImageFilter, ImageOps
@@ -42,6 +46,10 @@ MAX_OUTPUT_HEIGHT = 1024
 MAX_OUTPUT_WIDTH = 4096
 MAX_STAGE_CACHE_ENTRIES = 64
 MAX_RENDER_CACHE_ENTRIES = 8
+SESSION_COOKIE_NAME = "pixel_art_lab_session"
+MAX_SESSION_COUNT = 128
+SERVER_BROWSER_ROOT = SCRIPT_DIR.parent / "assets" / "generated"
+SERVER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 PALETTE_STRATEGIES = (
     "median-cut",
     "kmeans",
@@ -63,14 +71,18 @@ PALETTE_STRATEGIES = (
 class LabState:
     image: Image.Image | None = None
     name: str = ""
+    source_path: Path | None = None
     uploaded_at: float = 0.0
+    touched_at: float = field(default_factory=time.time)
     version: int = 0
     cache: dict[str, OrderedDict[tuple[Any, ...], Any]] = field(default_factory=dict)
+    lock: threading.RLock = field(default_factory=threading.RLock)
+    render_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 STATE = LabState()
-STATE_LOCK = threading.Lock()
-RENDER_LOCK = threading.Lock()
+SESSIONS: OrderedDict[str, LabState] = OrderedDict()
+SESSIONS_LOCK = threading.Lock()
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
@@ -129,6 +141,153 @@ def image_to_data_url(image: Image.Image) -> str:
     image.save(buffer, format="PNG")
     encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+def data_url_to_png_bytes(data_url: str) -> bytes:
+    if "," in data_url:
+        _header, data_url = data_url.split(",", 1)
+    raw = base64.b64decode(data_url, validate=False)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise ValueError("image output is too large")
+    image = Image.open(io.BytesIO(raw))
+    image.load()
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def server_root() -> Path:
+    return SERVER_BROWSER_ROOT.resolve()
+
+
+def path_is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def normalize_server_rel_path(value: str) -> str:
+    normalized = str(value or "").replace("\\", "/").strip("/")
+    if normalized in {"", "."}:
+        return ""
+    parts = [part for part in normalized.split("/") if part not in {"", "."}]
+    if any(part == ".." for part in parts):
+        raise ValueError("server path must stay inside assets/generated")
+    return "/".join(parts)
+
+
+def resolve_server_path(value: str) -> Path:
+    root = server_root()
+    rel_path = normalize_server_rel_path(value)
+    path = (root / rel_path).resolve()
+    if not path_is_relative_to(path, root):
+        raise ValueError("server path must stay inside assets/generated")
+    return path
+
+
+def server_relative_path(path: Path) -> str:
+    root = server_root()
+    resolved = path.resolve()
+    if not path_is_relative_to(resolved, root):
+        raise ValueError("server path must stay inside assets/generated")
+    if resolved == root:
+        return ""
+    return resolved.relative_to(root).as_posix()
+
+
+def is_supported_server_image(path: Path) -> bool:
+    return path.is_file() and path.suffix.lower() in SERVER_IMAGE_EXTENSIONS
+
+
+def sanitize_session_id(value: str | None) -> str:
+    if value and re.fullmatch(r"[A-Za-z0-9_-]{16,96}", value):
+        return value
+    return secrets.token_urlsafe(24)
+
+
+def get_session(session_id: str) -> LabState:
+    now = time.time()
+    with SESSIONS_LOCK:
+        state = SESSIONS.get(session_id)
+        if state is None:
+            state = LabState()
+            SESSIONS[session_id] = state
+        else:
+            SESSIONS.move_to_end(session_id)
+        state.touched_at = now
+        while len(SESSIONS) > MAX_SESSION_COUNT:
+            SESSIONS.popitem(last=False)
+        return state
+
+
+def open_server_image(path: Path) -> Image.Image:
+    if not is_supported_server_image(path):
+        raise ValueError("server file must be a PNG, JPG, WebP, or GIF image")
+    if path.stat().st_size > MAX_UPLOAD_BYTES:
+        raise ValueError("server file is too large")
+    image = Image.open(path)
+    image.load()
+    return image.convert("RGBA") if pag.image_has_alpha(image) else image.convert("RGB")
+
+
+def image_response_payload(image: Image.Image, name: str, source_path: Path | None = None) -> dict[str, Any]:
+    target_width, target_height = source_aspect_dimensions(image.width, image.height)
+    return {
+        "ok": True,
+        "name": name,
+        "width": image.width,
+        "height": image.height,
+        "targetWidth": target_width,
+        "targetHeight": target_height,
+        "maxTargetHeight": MAX_OUTPUT_HEIGHT,
+        "sourcePath": server_relative_path(source_path) if source_path is not None else None,
+        "canSaveInPlace": source_path is not None,
+    }
+
+
+def list_server_files(value: str) -> dict[str, Any]:
+    root = server_root()
+    path = resolve_server_path(value)
+    if not path.exists():
+        raise ValueError("server folder does not exist")
+    if not path.is_dir():
+        raise ValueError("server path must be a folder")
+    entries: list[dict[str, Any]] = []
+    for child in sorted(path.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
+        if child.name.startswith("."):
+            continue
+        if child.is_dir():
+            entries.append(
+                {
+                    "type": "dir",
+                    "name": child.name,
+                    "path": server_relative_path(child),
+                }
+            )
+            continue
+        if is_supported_server_image(child):
+            stat = child.stat()
+            entries.append(
+                {
+                    "type": "file",
+                    "name": child.name,
+                    "path": server_relative_path(child),
+                    "size": stat.st_size,
+                    "mtime": int(stat.st_mtime),
+                }
+            )
+    rel_path = server_relative_path(path)
+    parent = ""
+    if rel_path:
+        parent = server_relative_path(path.parent)
+    return {
+        "root": "assets/generated",
+        "path": rel_path,
+        "parent": parent,
+        "entries": entries,
+    }
 
 
 def normalize_edge_mask(mask: Image.Image, threshold: float) -> Image.Image:
@@ -940,6 +1099,13 @@ HTML = r"""<!doctype html>
       font-weight: 700;
     }
     button:hover { background: #303c59; }
+    button:disabled {
+      cursor: not-allowed;
+      border-color: #30384a;
+      background: #182033;
+      color: var(--faint);
+    }
+    button:disabled:hover { background: #182033; }
     button.secondary {
       background: #202838;
       color: var(--accent-strong);
@@ -948,6 +1114,9 @@ HTML = r"""<!doctype html>
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
+    }
+    .button-row.start-actions {
+      grid-template-columns: 1fr 1fr 1fr;
     }
     .row {
       display: grid;
@@ -1038,6 +1207,84 @@ HTML = r"""<!doctype html>
     .status-busy { color: var(--busy); }
     .status-error { color: var(--error); }
     .hidden { display: none; }
+    .server-browser {
+      position: fixed;
+      inset: 24px;
+      z-index: 30;
+      display: none;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+      min-height: 0;
+      background: #0d121b;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      box-shadow: 0 16px 70px #000000cc;
+    }
+    .server-browser[data-visible="true"] {
+      display: grid;
+    }
+    .server-browser-header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+    .server-browser-title {
+      min-width: 0;
+    }
+    .server-browser-title strong,
+    .server-browser-title span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .server-browser-title span {
+      margin-top: 3px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+    .server-browser-body {
+      min-height: 0;
+      overflow: auto;
+      padding: 8px;
+    }
+    .server-entry {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+      min-height: 40px;
+      margin: 0 0 6px;
+      text-align: left;
+      border-color: #30394c;
+      background: #121827;
+    }
+    .server-entry:hover {
+      background: #1a2334;
+    }
+    .server-entry span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .server-entry small {
+      color: var(--faint);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .server-browser-empty {
+      padding: 24px;
+      color: var(--muted);
+      text-align: center;
+    }
     @media (max-width: 980px) {
       body { overflow: auto; }
       .app {
@@ -1073,9 +1320,10 @@ HTML = r"""<!doctype html>
           <input id="file" type="file" accept="image/*" data-tooltip="Load the source image for this local session.">
         </label>
         <div id="inputInfo" class="small">No image loaded yet.</div>
-        <div class="button-row">
+        <div class="button-row start-actions">
           <button id="resetZoom" class="secondary" data-tooltip="Return the preview to 100% zoom and recenter it.">Reset view</button>
           <button id="saveSettings" class="secondary" data-tooltip="Export all current controls as a JSON preset file.">Save settings</button>
+          <button id="openFromServer" class="secondary" data-tooltip="Browse assets/generated on this server and open an image into this session.">Open from server</button>
         </div>
       </fieldset>
 
@@ -1452,7 +1700,8 @@ HTML = r"""<!doctype html>
         <span id="status" class="status-pill status-ok">waiting for image</span>
         <span id="zoomInfo" class="metric">zoom 100%</span>
         <button id="holdBefore" class="secondary" data-tooltip="Hold to draw the imported original over the output with matching pan and zoom.">Hold Before</button>
-        <button id="savePng" data-tooltip="Download the latest rendered output as a PNG.">Save PNG</button>
+        <button id="saveInPlace" data-tooltip="Save the current output over the server file that was opened in this session.">Save</button>
+        <button id="savePng" data-tooltip="Download the latest rendered output as a PNG.">Save As</button>
         <span class="spacer"></span>
         <span class="small">Wheel zooms at cursor. Drag pans. Hold Before or Z to compare.</span>
       </div>
@@ -1469,6 +1718,16 @@ HTML = r"""<!doctype html>
     <canvas id="tipCanvas" width="250" height="250"></canvas>
     <div class="label"><span>original full-res</span><span>output</span></div>
   </div>
+  <div id="serverBrowser" class="server-browser" aria-hidden="true">
+    <div class="server-browser-header">
+      <div class="server-browser-title">
+        <strong>Open from server</strong>
+        <span id="serverBrowserPath">assets/generated</span>
+      </div>
+      <button id="closeServerBrowser" class="secondary">Close</button>
+    </div>
+    <div id="serverBrowserBody" class="server-browser-body"></div>
+  </div>
   <div id="uiTooltip" role="tooltip" aria-hidden="true"></div>
 
   <script>
@@ -1478,6 +1737,9 @@ HTML = r"""<!doctype html>
     const VIEW_FIT_MIN_MARGIN = 16;
     const VIEW_FIT_MAX_MARGIN = 48;
     const PRESET_STORAGE_KEY = 'pixel-art-lab-custom-presets-v1';
+    const APP_BASE_PATH = window.location.pathname.endsWith('/')
+      ? window.location.pathname
+      : window.location.pathname.replace(/[^/]*$/, '');
     let defaultSettings = null;
 
     const state = {
@@ -1486,6 +1748,8 @@ HTML = r"""<!doctype html>
       sourceHeight: 0,
       sourceAspect: 0,
       sourceName: '',
+      sourcePath: null,
+      canSaveInPlace: false,
       outputImg: null,
       originalImg: null,
       outputDataUrl: null,
@@ -1532,6 +1796,10 @@ HTML = r"""<!doctype html>
     const gridVariantList = document.getElementById('gridVariantList');
     const customPresetSelect = document.getElementById('customPresetSelect');
     const presetNameInput = document.getElementById('presetName');
+    const saveInPlaceButton = document.getElementById('saveInPlace');
+    const serverBrowser = document.getElementById('serverBrowser');
+    const serverBrowserBody = document.getElementById('serverBrowserBody');
+    const serverBrowserPath = document.getElementById('serverBrowserPath');
     let activeUiTooltipTarget = null;
 
     function setStatus(text, cls) {
@@ -1540,6 +1808,19 @@ HTML = r"""<!doctype html>
     }
 
     function settingEl(id) { return document.getElementById(id); }
+
+    function appPath(path) {
+      const cleanPath = String(path || '').replace(/^\/+/, '');
+      return `${APP_BASE_PATH}${cleanPath}`;
+    }
+
+    function updateSaveInPlaceAvailability() {
+      const enabled = Boolean(state.outputDataUrl && state.canSaveInPlace && state.sourcePath);
+      saveInPlaceButton.disabled = !enabled;
+      saveInPlaceButton.dataset.tooltip = enabled
+        ? `Save over assets/generated/${state.sourcePath}.`
+        : 'Open an image from server and render it before using Save.';
+    }
 
     function isDimensionField(el) {
       return el.id === 'targetWidth' || el.id === 'targetHeight';
@@ -2294,6 +2575,13 @@ HTML = r"""<!doctype html>
       return data;
     }
 
+    async function getJson(url, signal) {
+      const response = await fetch(url, { signal });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || response.statusText);
+      return data;
+    }
+
     function loadImageUrl(url) {
       return new Promise((resolve, reject) => {
         const img = new Image();
@@ -2305,6 +2593,101 @@ HTML = r"""<!doctype html>
 
     function formatGridResolution(item) {
       return `${item.width}x${item.height}`;
+    }
+
+    function applyLoadedImage(result, originalImg, originalDataUrl) {
+      state.imageLoaded = true;
+      state.sourceName = result.name || '';
+      state.sourcePath = result.sourcePath || null;
+      state.canSaveInPlace = Boolean(result.canSaveInPlace && result.sourcePath);
+      state.originalImg = originalImg;
+      state.originalDataUrl = originalDataUrl;
+      state.outputDataUrl = null;
+      state.outputImg = null;
+      updateSaveInPlaceAvailability();
+      applySourceOutputSize(result.width, result.height, result.targetWidth, result.targetHeight);
+      const label = state.sourcePath ? `assets/generated/${state.sourcePath}` : result.name;
+      document.getElementById('inputInfo').textContent = `${label}: ${result.width}x${result.height}`;
+      setStatus('image loaded', 'status-ok');
+      state.zoom = 1;
+      state.offsetX = 0;
+      state.offsetY = 0;
+      state.pendingFitOnRender = true;
+      setBeforeDown(false);
+      scheduleRender(40);
+    }
+
+    function showServerBrowser() {
+      serverBrowser.dataset.visible = 'true';
+      serverBrowser.setAttribute('aria-hidden', 'false');
+      loadServerFolder('');
+    }
+
+    function hideServerBrowser() {
+      serverBrowser.removeAttribute('data-visible');
+      serverBrowser.setAttribute('aria-hidden', 'true');
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value) || 0;
+      if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+      if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+      return `${bytes} B`;
+    }
+
+    async function loadServerFolder(path) {
+      try {
+        setStatus('loading files...', 'status-busy');
+        const data = await getJson(`${appPath('api/server/files')}?path=${encodeURIComponent(path || '')}`);
+        serverBrowserPath.textContent = data.path ? `assets/generated/${data.path}` : 'assets/generated';
+        serverBrowserBody.innerHTML = '';
+        if (data.path) {
+          const up = document.createElement('button');
+          up.type = 'button';
+          up.className = 'server-entry';
+          up.innerHTML = '<span>..</span><small>folder</small>';
+          up.addEventListener('click', () => loadServerFolder(data.parent || ''));
+          serverBrowserBody.appendChild(up);
+        }
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+        if (!entries.length && !data.path) {
+          const empty = document.createElement('div');
+          empty.className = 'server-browser-empty';
+          empty.textContent = 'No supported images found in assets/generated.';
+          serverBrowserBody.appendChild(empty);
+        }
+        entries.forEach((entry) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'server-entry';
+          const name = document.createElement('span');
+          name.textContent = entry.name;
+          const meta = document.createElement('small');
+          meta.textContent = entry.type === 'dir' ? 'folder' : formatBytes(entry.size);
+          button.append(name, meta);
+          if (entry.type === 'dir') button.addEventListener('click', () => loadServerFolder(entry.path));
+          else button.addEventListener('click', () => openServerFile(entry.path));
+          serverBrowserBody.appendChild(button);
+        });
+        setStatus('files loaded', 'status-ok');
+      } catch (err) {
+        setStatus(err.message || String(err), 'status-error');
+      }
+    }
+
+    async function openServerFile(path) {
+      try {
+        setStatus('opening server file...', 'status-busy');
+        const imageUrl = `${appPath('api/server/file')}?path=${encodeURIComponent(path)}&v=${Date.now()}`;
+        const [result, originalImg] = await Promise.all([
+          postJson(appPath('api/server/open'), { path }),
+          loadImageUrl(imageUrl),
+        ]);
+        applyLoadedImage(result, originalImg, imageUrl);
+        hideServerBrowser();
+      } catch (err) {
+        setStatus(err.message || String(err), 'status-error');
+      }
     }
 
     function selectedGridVariantIndex(variants, selected) {
@@ -2345,13 +2728,14 @@ HTML = r"""<!doctype html>
       state.activeController = controller;
       setStatus('rendering...', 'status-busy');
       try {
-        const result = await postJson('/api/render', { settings: collectSettings() }, controller.signal);
+        const result = await postJson(appPath('api/render'), { settings: collectSettings() }, controller.signal);
         if (seq !== state.renderSeq) return;
         const outputImg = await loadImageUrl(result.output);
         state.outputImg = outputImg;
         state.outputDataUrl = result.output;
         state.width = result.width;
         state.height = result.height;
+        updateSaveInPlaceAvailability();
         if (state.pendingFitOnRender) {
           state.zoom = minZoomForCurrentImage();
           state.pendingFitOnRender = false;
@@ -2458,6 +2842,20 @@ HTML = r"""<!doctype html>
       link.click();
     }
 
+    async function saveCurrentInPlace() {
+      if (!state.outputDataUrl || !state.canSaveInPlace || !state.sourcePath) {
+        setStatus('open a server image first', 'status-error');
+        return;
+      }
+      try {
+        setStatus('saving...', 'status-busy');
+        const result = await postJson(appPath('api/save'), { data: state.outputDataUrl });
+        setStatus(`saved ${result.width}x${result.height}`, 'status-ok');
+      } catch (err) {
+        setStatus(err.message || String(err), 'status-error');
+      }
+    }
+
     function pixelLabOutputBaseName(sourceName) {
       const rawName = String(sourceName || '').split(/[\\/]/).pop() || 'pixel-art';
       const withoutExtension = rawName.replace(/\.[^.]*$/, '') || rawName;
@@ -2469,7 +2867,10 @@ HTML = r"""<!doctype html>
       return cleaned || 'pixel-art';
     }
 
+    document.getElementById('saveInPlace').addEventListener('click', saveCurrentInPlace);
     document.getElementById('savePng').addEventListener('click', saveCurrentPng);
+    document.getElementById('openFromServer').addEventListener('click', showServerBrowser);
+    document.getElementById('closeServerBrowser').addEventListener('click', hideServerBrowser);
 
     document.getElementById('saveSettings').addEventListener('click', () => {
       const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(normalizeSettings(collectSettings()), null, 2));
@@ -2488,26 +2889,13 @@ HTML = r"""<!doctype html>
         try {
           const originalDataUrl = reader.result;
           const [result, originalImg] = await Promise.all([
-            postJson('/api/image', {
+            postJson(appPath('api/image'), {
               name: file.name,
               data: originalDataUrl,
             }),
             loadImageUrl(originalDataUrl),
           ]);
-          state.imageLoaded = true;
-          state.sourceName = result.name || file.name || '';
-          state.originalImg = originalImg;
-          state.originalDataUrl = originalDataUrl;
-          applySourceOutputSize(result.width, result.height, result.targetWidth, result.targetHeight);
-          document.getElementById('inputInfo').textContent =
-            `${result.name}: ${result.width}x${result.height}`;
-          setStatus('image loaded', 'status-ok');
-          state.zoom = 1;
-          state.offsetX = 0;
-          state.offsetY = 0;
-          state.pendingFitOnRender = true;
-          setBeforeDown(false);
-          scheduleRender(40);
+          applyLoadedImage(result, originalImg, originalDataUrl);
         } catch (err) {
           setStatus(err.message || String(err), 'status-error');
         }
@@ -2520,6 +2908,7 @@ HTML = r"""<!doctype html>
     defaultSettings = captureDefaultSettings();
     syncConditionalControls();
     refreshPresetSelect();
+    updateSaveInPlaceAvailability();
   </script>
 </body>
 </html>
@@ -2532,6 +2921,18 @@ class LabHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         sys.stderr.write("%s - %s\n" % (self.log_date_time_string(), format % args))
 
+    def current_session_id(self) -> str:
+        if hasattr(self, "_pixel_lab_session_id"):
+            return self._pixel_lab_session_id
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        raw_cookie = cookie.get(SESSION_COOKIE_NAME)
+        session_id = sanitize_session_id(raw_cookie.value if raw_cookie else None)
+        self._pixel_lab_session_id = session_id
+        return session_id
+
+    def current_state(self) -> LabState:
+        return get_session(self.current_session_id())
+
     def read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
         if length > MAX_UPLOAD_BYTES * 2:
@@ -2539,11 +2940,24 @@ class LabHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(length)
         return json.loads(body.decode("utf-8"))
 
-    def send_bytes(self, content: bytes, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def send_bytes(
+        self,
+        content: bytes,
+        content_type: str,
+        status: HTTPStatus = HTTPStatus.OK,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(content)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header(
+            "Set-Cookie",
+            f"{SESSION_COOKIE_NAME}={self.current_session_id()}; Path=/; HttpOnly; SameSite=Lax",
+        )
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
         self.end_headers()
         self.wfile.write(content)
 
@@ -2558,20 +2972,38 @@ class LabHandler(BaseHTTPRequestHandler):
         self.send_json({"error": str(error)}, status=status)
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in {"/", "/index.html"}:
             self.send_bytes(HTML.encode("utf-8"), "text/html; charset=utf-8")
             return
         if path == "/api/status":
-            with STATE_LOCK:
-                image = STATE.image
+            state = self.current_state()
+            with state.lock:
+                image = state.image
                 payload = {
                     "loaded": image is not None,
-                    "name": STATE.name,
+                    "name": state.name,
                     "width": image.width if image else 0,
                     "height": image.height if image else 0,
+                    "sourcePath": server_relative_path(state.source_path) if state.source_path else None,
+                    "canSaveInPlace": state.source_path is not None,
                 }
             self.send_json(payload)
+            return
+        if path == "/api/server/files":
+            query = parse_qs(parsed.query)
+            self.send_json(list_server_files(query.get("path", [""])[0]))
+            return
+        if path == "/api/server/file":
+            query = parse_qs(parsed.query)
+            server_path = resolve_server_path(query.get("path", [""])[0])
+            if not is_supported_server_image(server_path):
+                self.send_error_json(ValueError("server file must be a supported image"), HTTPStatus.BAD_REQUEST)
+                return
+            content = server_path.read_bytes()
+            content_type = mimetypes.guess_type(server_path.name)[0] or "application/octet-stream"
+            self.send_bytes(content, content_type)
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -2582,25 +3014,32 @@ class LabHandler(BaseHTTPRequestHandler):
                 payload = self.read_json()
                 image = data_url_to_image(str(payload.get("data", "")))
                 name = str(payload.get("name", "uploaded-image"))
-                with RENDER_LOCK:
-                    with STATE_LOCK:
-                        STATE.image = image
-                        STATE.name = name
-                        STATE.uploaded_at = time.time()
-                        STATE.version += 1
-                        STATE.cache.clear()
-                target_width, target_height = source_aspect_dimensions(image.width, image.height)
-                self.send_json(
-                    {
-                        "ok": True,
-                        "name": name,
-                        "width": image.width,
-                        "height": image.height,
-                        "targetWidth": target_width,
-                        "targetHeight": target_height,
-                        "maxTargetHeight": MAX_OUTPUT_HEIGHT,
-                    }
-                )
+                state = self.current_state()
+                with state.render_lock:
+                    with state.lock:
+                        state.image = image
+                        state.name = name
+                        state.source_path = None
+                        state.uploaded_at = time.time()
+                        state.version += 1
+                        state.cache.clear()
+                self.send_json(image_response_payload(image, name))
+                return
+
+            if path == "/api/server/open":
+                payload = self.read_json()
+                server_path = resolve_server_path(str(payload.get("path", "")))
+                image = open_server_image(server_path)
+                state = self.current_state()
+                with state.render_lock:
+                    with state.lock:
+                        state.image = image
+                        state.name = server_path.name
+                        state.source_path = server_path
+                        state.uploaded_at = time.time()
+                        state.version += 1
+                        state.cache.clear()
+                self.send_json(image_response_payload(image, server_path.name, server_path))
                 return
 
             if path == "/api/render":
@@ -2608,15 +3047,47 @@ class LabHandler(BaseHTTPRequestHandler):
                 settings = payload.get("settings", {})
                 if not isinstance(settings, dict):
                     raise ValueError("settings must be an object")
-                with STATE_LOCK:
-                    if STATE.image is None:
+                state = self.current_state()
+                with state.lock:
+                    if state.image is None:
                         raise ValueError("load an image first")
-                    image = STATE.image
-                    version = STATE.version
-                    cache = STATE.cache
-                with RENDER_LOCK:
+                    image = state.image
+                    version = state.version
+                    cache = state.cache
+                with state.render_lock:
                     result = convert_in_memory(image, settings, cache=cache, version=version)
                 self.send_json(result)
+                return
+
+            if path == "/api/save":
+                payload = self.read_json()
+                png_bytes = data_url_to_png_bytes(str(payload.get("data", "")))
+                state = self.current_state()
+                with state.lock:
+                    source_path = state.source_path
+                if source_path is None:
+                    raise ValueError("open an image from server before using Save")
+                if not is_supported_server_image(source_path):
+                    raise ValueError("source server file is not a supported image")
+                source_path.write_bytes(png_bytes)
+                image = open_server_image(source_path)
+                with state.render_lock:
+                    with state.lock:
+                        state.image = image
+                        state.name = source_path.name
+                        state.source_path = source_path
+                        state.uploaded_at = time.time()
+                        state.version += 1
+                        state.cache.clear()
+                self.send_json(
+                    {
+                        "ok": True,
+                        "path": server_relative_path(source_path),
+                        "bytes": len(png_bytes),
+                        "width": image.width,
+                        "height": image.height,
+                    }
+                )
                 return
 
             self.send_error(HTTPStatus.NOT_FOUND)
