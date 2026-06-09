@@ -831,6 +831,10 @@ HTML = r"""<!doctype html>
       --busy: #f5d487;
       --warn: #f0b15b;
       --error: #ff9d9d;
+      --tooltip-layer: 2147483647;
+      --tooltip-bg: #080d15;
+      --tooltip-border: #dfe8ff;
+      --tooltip-shell: #02050a;
     }
     * { box-sizing: border-box; }
     body {
@@ -951,25 +955,34 @@ HTML = r"""<!doctype html>
       height: 100%;
       display: block;
     }
+    #tooltipLayer {
+      position: fixed;
+      inset: 0;
+      z-index: var(--tooltip-layer);
+      pointer-events: none;
+    }
     #tooltip {
       position: fixed;
-      z-index: 20;
+      z-index: 2;
       width: 260px;
       height: 284px;
       padding: 4px;
       display: none;
       pointer-events: none;
-      background: #090b10;
-      border: 1px solid #6d7590;
+      background: var(--tooltip-bg);
+      border: 1px solid var(--tooltip-border);
+      box-shadow: 0 0 0 2px var(--tooltip-shell);
     }
     #tooltip canvas {
       width: 250px;
       height: 250px;
       display: block;
+      background: var(--tooltip-shell);
     }
     #tooltip .label {
       display: flex;
       justify-content: space-between;
+      background: var(--tooltip-bg);
       color: #dce4f6;
       font-size: 11px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -978,14 +991,15 @@ HTML = r"""<!doctype html>
     }
     #uiTooltip {
       position: fixed;
-      z-index: 40;
+      z-index: 3;
       display: none;
       max-width: 320px;
       padding: 9px 11px;
       pointer-events: none;
-      background: #121827;
-      border: 1px solid #6d7590;
+      background: var(--tooltip-bg);
+      border: 1px solid var(--tooltip-border);
       border-radius: 6px;
+      box-shadow: 0 0 0 2px var(--tooltip-shell);
       color: #eef3ff;
       font-size: 12px;
       line-height: 1.35;
@@ -1770,10 +1784,6 @@ HTML = r"""<!doctype html>
       </div>
     </main>
   </div>
-  <div id="tooltip">
-    <canvas id="tipCanvas" width="250" height="250"></canvas>
-    <div class="label"><span>original full-res</span><span>output</span></div>
-  </div>
   <div id="serverBrowser" class="server-browser" aria-hidden="true">
     <div class="server-browser-header">
       <div class="server-browser-title">
@@ -1784,7 +1794,13 @@ HTML = r"""<!doctype html>
     </div>
     <div id="serverBrowserBody" class="server-browser-body"></div>
   </div>
-  <div id="uiTooltip" role="tooltip" aria-hidden="true"></div>
+  <div id="tooltipLayer">
+    <div id="tooltip">
+      <canvas id="tipCanvas" width="250" height="250"></canvas>
+      <div class="label"><span>original full-res</span><span>output</span></div>
+    </div>
+    <div id="uiTooltip" role="tooltip" aria-hidden="true"></div>
+  </div>
 
   <script>
     const MIN_OUTPUT_SIZE = 16;

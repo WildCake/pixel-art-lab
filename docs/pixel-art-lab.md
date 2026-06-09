@@ -35,7 +35,7 @@ Custom presets and settings JSON exports store every `data-setting` control in t
 
 ## Tooltips
 
-Control hints and palette-swatch color hints use the app's custom `data-tooltip` layer. Do not add browser-native `title` attributes; disabled-control explanations should also go through `data-tooltip` so every hint keeps the same visual style.
+Control hints and palette-swatch color hints use the app's custom `data-tooltip` layer. Do not add browser-native `title` attributes; disabled-control explanations should also go through `data-tooltip` so every hint keeps the same visual style. Tooltips must render in the topmost `tooltipLayer` with a solid, nontransparent background.
 
 ## Output Size
 

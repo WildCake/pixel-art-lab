@@ -79,6 +79,9 @@ def main() -> None:
             assert 'id="saveInPlace"' in lab.HTML
             assert "api/server/thumbnail" in lab.HTML
             assert "server-entry-file" in lab.HTML
+            assert 'id="tooltipLayer"' in lab.HTML
+            assert "--tooltip-layer: 2147483647" in lab.HTML
+            assert "var(--tooltip-bg)" in lab.HTML
             assert ">Save As<" in lab.HTML
         finally:
             lab.SERVER_BROWSER_ROOT = old_root
