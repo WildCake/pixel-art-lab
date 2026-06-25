@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import io
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -88,6 +89,11 @@ def main() -> None:
             assert "--tooltip-layer: 2147483647" in lab.HTML
             assert "var(--tooltip-bg)" in lab.HTML
             assert ">Save As<" in lab.HTML
+            overlay_match = re.search(r"function drawOriginalOverlay\(\) \{(?P<body>.*?)function viewerPoint", lab.HTML, re.S)
+            assert overlay_match is not None
+            overlay_body = overlay_match.group("body")
+            assert "ctx.imageSmoothingEnabled = state.zoom < 1;" in overlay_body
+            assert "ctx.imageSmoothingEnabled = true;" not in overlay_body
         finally:
             lab.SERVER_BROWSER_ROOT = old_root
             lab.SESSIONS.clear()

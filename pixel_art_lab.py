@@ -2458,7 +2458,7 @@ HTML = r"""<!doctype html>
       if (!state.originalImg || !state.width || !state.height) return;
       const originalRect = originalCropRect();
       ctx.save();
-      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingEnabled = state.zoom < 1;
       ctx.drawImage(
         state.originalImg,
         originalRect.x,
