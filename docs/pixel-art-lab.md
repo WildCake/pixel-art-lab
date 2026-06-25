@@ -21,7 +21,7 @@ Each browser gets an isolated session cookie. Loaded images, render caches, and 
 5. Drag to pan. Panning is clamped so the output cannot be moved beyond its visible bounds.
 6. Hold `Hold Before` in the topbar to draw the imported original over the whole output using the same crop, pan, and zoom; release it to immediately return to the rendered result.
 7. Hold `Z` while hovering the output to show a split tooltip. The left side samples the imported original image at its own resolution, mapped to the same normalized region as the output; the right side is the output at the exact same logical coordinates.
-8. Export the current PNG or settings JSON from the Export panel.
+8. Export the current PNG, a portable project, or settings JSON from the Export panel.
 
 ## Server Files
 
@@ -32,6 +32,12 @@ Each browser gets an isolated session cookie. Loaded images, render caches, and 
 ## Presets And Settings Export
 
 Custom presets and settings JSON exports store every `data-setting` control in the GUI, including controls that are currently disabled because another option makes them inactive. For example, when `Grid Snap` plus `quantize before grid vote` temporarily disables `Dither`, the preset still remembers the dither mode the operator selected so it returns when quantize-first is turned off. Older partial presets are normalized on load: missing keys fall back to the GUI defaults instead of inheriting whatever happened to be active before loading.
+
+## Portable Project Files
+
+`Save project` downloads a `.pixelartlab` JSON file with `format: "diliada.pixel-art-lab.project"` and `version: 1`. The package embeds the source image as a data URL under `source.data` and stores all normalized GUI controls under `settings`, so another operator can load the file without needing the original PNG/JPG/WebP separately.
+
+Project import uses the same `/api/image` path as an ordinary local upload, then applies the saved settings and renders once. Server metadata such as `sourcePath` and `saveTargetPath` is stored only for context; importing a project does not enable `Save` against the sender's `assets/generated/**` path on the recipient machine.
 
 ## Tooltips
 

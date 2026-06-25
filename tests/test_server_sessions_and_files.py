@@ -83,6 +83,11 @@ def main() -> None:
 
             assert 'id="openFromServer"' in lab.HTML
             assert 'id="saveInPlace"' in lab.HTML
+            assert 'id="loadProject"' in lab.HTML
+            assert 'id="saveProject"' in lab.HTML
+            assert 'id="projectFile"' in lab.HTML
+            assert "diliada.pixel-art-lab.project" in lab.HTML
+            assert ".pixelartlab" in lab.HTML
             assert "api/server/thumbnail" in lab.HTML
             assert "server-entry-file" in lab.HTML
             assert 'id="tooltipLayer"' in lab.HTML

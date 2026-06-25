@@ -1163,7 +1163,10 @@ HTML = r"""<!doctype html>
       gap: 8px;
     }
     .button-row.start-actions {
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr;
+    }
+    .button-row.start-actions button:last-child {
+      grid-column: 1 / -1;
     }
     .row {
       display: grid;
@@ -1402,14 +1405,17 @@ HTML = r"""<!doctype html>
       </div>
       <fieldset>
         <legend>Start</legend>
-        <p class="section-note">Import one image. Every control updates the rendered output after a short debounce.</p>
+        <p class="section-note">Import one image or a saved project. Every control updates the rendered output after a short debounce.</p>
         <label>
           <span class="label-title">Source image <span class="field-hint">PNG, JPG, or WebP</span></span>
           <input id="file" type="file" accept="image/*" data-tooltip="Load the source image for this local session.">
         </label>
+        <input id="projectFile" type="file" accept=".pixelartlab,application/json" hidden>
         <div id="inputInfo" class="small">No image loaded yet.</div>
         <div class="button-row start-actions">
           <button id="resetZoom" class="secondary" data-tooltip="Return the preview to 100% zoom and recenter it.">Reset view</button>
+          <button id="loadProject" class="secondary" data-tooltip="Load a .pixelartlab project with its source image and controls.">Load project</button>
+          <button id="saveProject" class="secondary" data-tooltip="Save a portable .pixelartlab project with the source image and all controls.">Save project</button>
           <button id="saveSettings" class="secondary" data-tooltip="Export all current controls as a JSON preset file.">Save settings</button>
           <button id="openFromServer" class="secondary" data-tooltip="Browse assets/generated on this server and open an image into this session.">Open from server</button>
         </div>
@@ -1827,6 +1833,8 @@ HTML = r"""<!doctype html>
     const VIEW_FIT_MIN_MARGIN = 16;
     const VIEW_FIT_MAX_MARGIN = 48;
     const PRESET_STORAGE_KEY = 'pixel-art-lab-custom-presets-v1';
+    const PROJECT_FORMAT = 'diliada.pixel-art-lab.project';
+    const PROJECT_FORMAT_VERSION = 1;
     const APP_BASE_PATH = window.location.pathname.endsWith('/')
       ? window.location.pathname
       : window.location.pathname.replace(/[^/]*$/, '');
@@ -1888,6 +1896,8 @@ HTML = r"""<!doctype html>
     const customPresetSelect = document.getElementById('customPresetSelect');
     const presetNameInput = document.getElementById('presetName');
     const saveInPlaceButton = document.getElementById('saveInPlace');
+    const saveProjectButton = document.getElementById('saveProject');
+    const projectFileInput = document.getElementById('projectFile');
     const serverBrowser = document.getElementById('serverBrowser');
     const serverBrowserBody = document.getElementById('serverBrowserBody');
     const serverBrowserPath = document.getElementById('serverBrowserPath');
@@ -1911,6 +1921,16 @@ HTML = r"""<!doctype html>
       saveInPlaceButton.dataset.tooltip = enabled
         ? `Save over assets/generated/${state.saveTargetPath}.`
         : 'Open an image from server and render it before using Save.';
+      if (activeUiTooltipTarget === saveInPlaceButton) hideUiTooltip();
+    }
+
+    function updateProjectSaveAvailability() {
+      const enabled = Boolean(state.imageLoaded && state.originalDataUrl);
+      saveProjectButton.disabled = !enabled;
+      saveProjectButton.dataset.tooltip = enabled
+        ? 'Save a portable .pixelartlab project with the source image and all controls.'
+        : 'Load a source image before saving a project.';
+      if (activeUiTooltipTarget === saveProjectButton) hideUiTooltip();
     }
 
     function isDimensionField(el) {
@@ -2686,7 +2706,7 @@ HTML = r"""<!doctype html>
       return `${item.width}x${item.height}`;
     }
 
-    function applyLoadedImage(result, originalImg, originalDataUrl) {
+    function applyLoadedImage(result, originalImg, originalDataUrl, options = {}) {
       state.imageLoaded = true;
       state.sourceName = result.name || '';
       state.sourcePath = result.sourcePath || null;
@@ -2697,6 +2717,7 @@ HTML = r"""<!doctype html>
       state.outputDataUrl = null;
       state.outputImg = null;
       updateSaveInPlaceAvailability();
+      updateProjectSaveAvailability();
       applySourceOutputSize(result.width, result.height, result.targetWidth, result.targetHeight);
       const label = state.sourcePath ? `assets/generated/${state.sourcePath}` : result.name;
       document.getElementById('inputInfo').textContent = `${label}: ${result.width}x${result.height}`;
@@ -2706,7 +2727,7 @@ HTML = r"""<!doctype html>
       state.offsetY = 0;
       state.pendingFitOnRender = true;
       setBeforeDown(false);
-      scheduleRender(40);
+      if (options.scheduleRender !== false) scheduleRender(40);
     }
 
     function showServerBrowser() {
@@ -2995,10 +3016,121 @@ HTML = r"""<!doctype html>
       return cleaned || 'pixel-art';
     }
 
+    function dataUrlMimeType(dataUrl) {
+      const match = /^data:([^;,]+)[;,]/.exec(String(dataUrl || ''));
+      return match ? match[1] : 'application/octet-stream';
+    }
+
+    function downloadJsonFile(filename, payload) {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    function buildProjectPayload() {
+      if (!state.imageLoaded || !state.originalDataUrl) {
+        throw new Error('load an image before saving a project');
+      }
+      return {
+        format: PROJECT_FORMAT,
+        version: PROJECT_FORMAT_VERSION,
+        createdAt: new Date().toISOString(),
+        source: {
+          name: state.sourceName || 'source.png',
+          mimeType: dataUrlMimeType(state.originalDataUrl),
+          width: state.sourceWidth,
+          height: state.sourceHeight,
+          data: state.originalDataUrl,
+        },
+        settings: normalizeSettings(collectSettings()),
+        metadata: {
+          sourcePath: state.sourcePath || null,
+          saveTargetPath: state.saveTargetPath || null,
+          outputWidth: state.width || null,
+          outputHeight: state.height || null,
+        },
+      };
+    }
+
+    function saveProjectFile() {
+      try {
+        const project = buildProjectPayload();
+        downloadJsonFile(`${pixelLabOutputBaseName(project.source.name)}.pixelartlab`, project);
+        setStatus('project saved', 'status-ok');
+      } catch (err) {
+        setStatus(err.message || String(err), 'status-error');
+      }
+    }
+
+    function normalizeProjectPayload(project, fileName) {
+      if (!project || typeof project !== 'object' || Array.isArray(project)) {
+        throw new Error('project file is not an object');
+      }
+      if (project.format !== PROJECT_FORMAT) {
+        throw new Error('unsupported project format');
+      }
+      if (project.version !== PROJECT_FORMAT_VERSION) {
+        throw new Error(`unsupported project version ${project.version}`);
+      }
+      if (!project.source || typeof project.source !== 'object') {
+        throw new Error('project has no source image');
+      }
+      const sourceData = String(project.source.data || '');
+      if (!sourceData.startsWith('data:image/')) {
+        throw new Error('project source image is missing');
+      }
+      if (!project.settings || typeof project.settings !== 'object' || Array.isArray(project.settings)) {
+        throw new Error('project settings are missing');
+      }
+      const fallbackName = String(fileName || 'project.pixelartlab').replace(/\.pixelartlab$/i, '') || 'project';
+      return {
+        sourceName: String(project.source.name || `${fallbackName}.png`),
+        sourceData,
+        settings: project.settings,
+      };
+    }
+
+    async function loadProjectFile(file) {
+      if (!file) return;
+      try {
+        setStatus('loading project...', 'status-busy');
+        let parsed = null;
+        try {
+          parsed = JSON.parse(await file.text());
+        } catch (_err) {
+          throw new Error('invalid project JSON');
+        }
+        const project = normalizeProjectPayload(parsed, file.name);
+        const [result, originalImg] = await Promise.all([
+          postJson(appPath('api/image'), {
+            name: project.sourceName,
+            data: project.sourceData,
+          }),
+          loadImageUrl(project.sourceData),
+        ]);
+        applyLoadedImage(result, originalImg, project.sourceData, { scheduleRender: false });
+        applySettings(project.settings);
+        setStatus('project loaded', 'status-ok');
+      } catch (err) {
+        setStatus(err.message || String(err), 'status-error');
+      } finally {
+        projectFileInput.value = '';
+      }
+    }
+
     document.getElementById('saveInPlace').addEventListener('click', saveCurrentInPlace);
     document.getElementById('savePng').addEventListener('click', saveCurrentPng);
     document.getElementById('openFromServer').addEventListener('click', showServerBrowser);
     document.getElementById('closeServerBrowser').addEventListener('click', hideServerBrowser);
+    saveProjectButton.addEventListener('click', saveProjectFile);
+    document.getElementById('loadProject').addEventListener('click', () => projectFileInput.click());
+    projectFileInput.addEventListener('change', (evt) => {
+      loadProjectFile(evt.target.files && evt.target.files[0]);
+    });
 
     document.getElementById('saveSettings').addEventListener('click', () => {
       const data = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(normalizeSettings(collectSettings()), null, 2));
@@ -3037,6 +3169,7 @@ HTML = r"""<!doctype html>
     syncConditionalControls();
     refreshPresetSelect();
     updateSaveInPlaceAvailability();
+    updateProjectSaveAvailability();
   </script>
 </body>
 </html>

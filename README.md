@@ -31,6 +31,7 @@ It is designed for agent/operator work: an agent starts the local service, the o
 - Local-only processing. Images are uploaded only to the local Python process.
 - `Open from server` browses images under the sibling project folder `assets/generated/**` with thumbnail previews when Pixel Art Lab is run from this repository layout.
 - `Save` writes the current output to a sibling `_PIXEL_LAB.png` server version; `Save As` keeps the previous browser download behavior.
+- `.pixelartlab` project files are portable JSON packages containing the source image plus every current conversion control.
 - Custom browser presets for every conversion setting, including disabled conditional controls.
 
 ## Requirements
@@ -66,7 +67,7 @@ If `8767` is busy, the service automatically tries the next 49 ports.
 3. Choose a palette strategy in `Palette Builder`.
 4. Enable `Grid Snap` in `Hidden Grid` for generated art that contains enlarged pseudo-pixels.
 5. Wheel zooms at the cursor. Drag pans. Hold `Hold Before` to overlay the full imported original, or hold `Z` over the preview to compare a local original/output region.
-6. Use `Save` to overwrite the opened image's `_PIXEL_LAB.png` server version, or `Save As` to download a PNG. You can also save your complete current controls as a JSON settings file.
+6. Use `Save` to overwrite the opened image's `_PIXEL_LAB.png` server version, or `Save As` to download a PNG. Use `Save project` to share a `.pixelartlab` file that another operator can load with the same source image and all controls. You can also save your complete current controls as a JSON settings file.
 
 ## Examples
 
@@ -131,6 +132,7 @@ python3 pixel_art_grid.py source-dir \
 - `pixel_art_lab.py` - local web GUI and API server.
 - `pixel_art_grid.py` - conversion pipeline and command-line converter.
 - `requirements.txt` - Python dependencies.
+- `*.pixelartlab` - portable JSON project files created by the GUI; they embed the source image as a data URL and restore through the normal local upload path.
 - `docs/pixel-art-lab.md` - detailed notes on grid snap, palettes, dithering, caching, and performance rules.
 
 ## Agent Runbook
