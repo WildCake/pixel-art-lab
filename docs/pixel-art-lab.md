@@ -33,6 +33,8 @@ Each browser gets an isolated session cookie. Loaded images, render caches, and 
 
 Custom presets and settings JSON exports store every `data-setting` control in the GUI, including controls that are currently disabled because another option makes them inactive. For example, when `Grid Snap` plus `quantize before grid vote` temporarily disables `Dither`, the preset still remembers the dither mode the operator selected so it returns when quantize-first is turned off. Older partial presets are normalized on load: missing keys fall back to the GUI defaults instead of inheriting whatever happened to be active before loading.
 
+Browser-local custom presets are stored in IndexedDB. Older presets saved under the legacy `pixel-art-lab-custom-presets-v1` `localStorage` key are migrated automatically, then the old key is cleared to avoid the small `localStorage` quota blocking later preset saves.
+
 ## Portable Project Files
 
 `Save project` downloads a `.pixelartlab` JSON file with `format: "diliada.pixel-art-lab.project"` and `version: 1`. The package embeds the source image as a data URL under `source.data` and stores all normalized GUI controls under `settings`, so another operator can load the file without needing the original PNG/JPG/WebP separately.

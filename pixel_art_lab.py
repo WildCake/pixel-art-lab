@@ -917,13 +917,18 @@ HTML = r"""<!doctype html>
     .status-pill {
       display: inline-flex;
       align-items: center;
+      flex-shrink: 0;
       min-width: 118px;
+      max-width: 220px;
       min-height: 28px;
       padding: 0 10px;
       border: 1px solid var(--line);
       border-radius: 999px;
       background: #0f1520;
       font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .viewer {
       position: relative;
@@ -1833,12 +1838,16 @@ HTML = r"""<!doctype html>
     const VIEW_FIT_MIN_MARGIN = 16;
     const VIEW_FIT_MAX_MARGIN = 48;
     const PRESET_STORAGE_KEY = 'pixel-art-lab-custom-presets-v1';
+    const PRESET_DB_NAME = 'pixel-art-lab-presets';
+    const PRESET_DB_VERSION = 1;
+    const PRESET_DB_STORE = 'presets';
     const PROJECT_FORMAT = 'diliada.pixel-art-lab.project';
     const PROJECT_FORMAT_VERSION = 1;
     const APP_BASE_PATH = window.location.pathname.endsWith('/')
       ? window.location.pathname
       : window.location.pathname.replace(/[^/]*$/, '');
     let defaultSettings = null;
+    let presetDbPromise = null;
 
     const state = {
       imageLoaded: false,
@@ -2299,27 +2308,166 @@ HTML = r"""<!doctype html>
       return settings;
     }
 
-    function readPresetStore() {
+    function normalizePresetStore(store) {
+      if (!store || typeof store !== 'object' || Array.isArray(store)) return {};
+      const normalized = {};
+      Object.entries(store).forEach(([name, settings]) => {
+        if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
+          normalized[String(name)] = settings;
+        }
+      });
+      return normalized;
+    }
+
+    function readLegacyPresetStore() {
       try {
         const raw = localStorage.getItem(PRESET_STORAGE_KEY);
         if (!raw) return {};
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-      } catch (_err) {
+        return normalizePresetStore(JSON.parse(raw));
+      } catch (err) {
+        console.warn('Could not read legacy Pixel Art Lab presets.', err);
         return {};
       }
     }
 
-    function writePresetStore(store) {
-      localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(store));
+    function isQuotaExceededError(err) {
+      return Boolean(err && (
+        err.name === 'QuotaExceededError' ||
+        err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+        err.code === 22 ||
+        err.code === 1014
+      ));
     }
 
-    function presetNames(store = readPresetStore()) {
+    function indexedDbAvailable() {
+      return Boolean(window.indexedDB);
+    }
+
+    function idbRequest(request) {
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('IndexedDB request failed'));
+      });
+    }
+
+    function idbTransactionDone(transaction) {
+      return new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onabort = () => reject(transaction.error || new Error('IndexedDB transaction aborted'));
+        transaction.onerror = () => reject(transaction.error || new Error('IndexedDB transaction failed'));
+      });
+    }
+
+    function openPresetDb() {
+      if (!indexedDbAvailable()) {
+        return Promise.reject(new Error('IndexedDB is not available'));
+      }
+      if (!presetDbPromise) {
+        presetDbPromise = new Promise((resolve, reject) => {
+          const request = indexedDB.open(PRESET_DB_NAME, PRESET_DB_VERSION);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(PRESET_DB_STORE)) {
+              db.createObjectStore(PRESET_DB_STORE, { keyPath: 'name' });
+            }
+          };
+          request.onsuccess = () => {
+            const db = request.result;
+            db.onversionchange = () => db.close();
+            resolve(db);
+          };
+          request.onerror = () => reject(request.error || new Error('Could not open preset database'));
+          request.onblocked = () => reject(new Error('Preset database is blocked by another tab'));
+        }).catch((err) => {
+          presetDbPromise = null;
+          throw err;
+        });
+      }
+      return presetDbPromise;
+    }
+
+    async function readPresetStoreFromDb() {
+      const db = await openPresetDb();
+      const transaction = db.transaction(PRESET_DB_STORE, 'readonly');
+      const done = idbTransactionDone(transaction);
+      const objectStore = transaction.objectStore(PRESET_DB_STORE);
+      const records = await idbRequest(objectStore.getAll());
+      await done;
+      const store = {};
+      records.forEach((record) => {
+        if (record && record.name && record.settings && typeof record.settings === 'object') {
+          store[String(record.name)] = record.settings;
+        }
+      });
+      return store;
+    }
+
+    async function writePresetStoreToDb(store) {
+      const normalized = normalizePresetStore(store);
+      const db = await openPresetDb();
+      const transaction = db.transaction(PRESET_DB_STORE, 'readwrite');
+      const done = idbTransactionDone(transaction);
+      const objectStore = transaction.objectStore(PRESET_DB_STORE);
+      objectStore.clear();
+      const updatedAt = new Date().toISOString();
+      Object.entries(normalized).forEach(([name, settings]) => {
+        objectStore.put({ name, settings, updatedAt });
+      });
+      await done;
+    }
+
+    async function readPresetStore() {
+      const legacyStore = readLegacyPresetStore();
+      if (!indexedDbAvailable()) return legacyStore;
+      try {
+        const dbStore = await readPresetStoreFromDb();
+        const legacyNames = Object.keys(legacyStore);
+        if (!legacyNames.length) return dbStore;
+        const mergedStore = { ...legacyStore, ...dbStore };
+        await writePresetStoreToDb(mergedStore);
+        try {
+          localStorage.removeItem(PRESET_STORAGE_KEY);
+        } catch (_err) {
+          // Best-effort cleanup only; the migrated IndexedDB store is authoritative.
+        }
+        return mergedStore;
+      } catch (err) {
+        console.warn('Preset database unavailable; using legacy localStorage presets.', err);
+        return legacyStore;
+      }
+    }
+
+    async function writePresetStore(store) {
+      const normalized = normalizePresetStore(store);
+      if (indexedDbAvailable()) {
+        try {
+          await writePresetStoreToDb(normalized);
+          try {
+            localStorage.removeItem(PRESET_STORAGE_KEY);
+          } catch (_err) {
+            // The IndexedDB write succeeded, so failing to free legacy storage is non-fatal.
+          }
+          return;
+        } catch (err) {
+          console.warn('Could not save presets to IndexedDB.', err);
+        }
+      }
+      try {
+        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(normalized));
+      } catch (err) {
+        if (isQuotaExceededError(err)) {
+          throw new Error('browser preset storage is full; delete old site data or save a .pixelartlab project');
+        }
+        throw err;
+      }
+    }
+
+    function presetNames(store = {}) {
       return Object.keys(store).sort((a, b) => a.localeCompare(b));
     }
 
-    function refreshPresetSelect(selectedName = '') {
-      const store = readPresetStore();
+    async function refreshPresetSelect(selectedName = '') {
+      const store = await readPresetStore();
       const names = presetNames(store);
       customPresetSelect.innerHTML = '';
       const placeholder = document.createElement('option');
@@ -2348,33 +2496,33 @@ HTML = r"""<!doctype html>
       scheduleRender(40);
     }
 
-    function saveCurrentPreset() {
+    async function saveCurrentPreset() {
       const name = presetNameInput.value.trim();
       if (!name) {
         setStatus('enter a preset name', 'status-error');
         return;
       }
-      const store = readPresetStore();
-      store[name] = normalizeSettings(collectSettings());
       try {
-        writePresetStore(store);
+        const store = await readPresetStore();
+        store[name] = normalizeSettings(collectSettings());
+        await writePresetStore(store);
+        await refreshPresetSelect(name);
       } catch (err) {
         setStatus(err.message || 'could not save preset', 'status-error');
         return;
       }
-      refreshPresetSelect(name);
       setStatus(`saved preset: ${name}`, 'status-ok');
     }
 
-    function loadSelectedPreset() {
+    async function loadSelectedPreset() {
       const name = customPresetSelect.value;
       if (!name) {
         setStatus('select a preset first', 'status-error');
         return;
       }
-      const store = readPresetStore();
+      const store = await readPresetStore();
       if (!store[name]) {
-        refreshPresetSelect();
+        await refreshPresetSelect();
         setStatus('preset not found', 'status-error');
         return;
       }
@@ -2383,17 +2531,22 @@ HTML = r"""<!doctype html>
       setStatus(`loaded preset: ${name}`, 'status-ok');
     }
 
-    function deleteSelectedPreset() {
+    async function deleteSelectedPreset() {
       const name = customPresetSelect.value;
       if (!name) {
         setStatus('select a preset first', 'status-error');
         return;
       }
-      const store = readPresetStore();
-      delete store[name];
-      writePresetStore(store);
-      presetNameInput.value = '';
-      refreshPresetSelect();
+      try {
+        const store = await readPresetStore();
+        delete store[name];
+        await writePresetStore(store);
+        presetNameInput.value = '';
+        await refreshPresetSelect();
+      } catch (err) {
+        setStatus(err.message || 'could not delete preset', 'status-error');
+        return;
+      }
       setStatus(`deleted preset: ${name}`, 'status-ok');
     }
 

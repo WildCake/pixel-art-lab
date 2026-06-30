@@ -88,6 +88,10 @@ def main() -> None:
             assert 'id="projectFile"' in lab.HTML
             assert "diliada.pixel-art-lab.project" in lab.HTML
             assert ".pixelartlab" in lab.HTML
+            assert "pixel-art-lab-presets" in lab.HTML
+            assert "indexedDB.open(PRESET_DB_NAME" in lab.HTML
+            assert "localStorage.removeItem(PRESET_STORAGE_KEY)" in lab.HTML
+            assert "async function saveCurrentPreset()" in lab.HTML
             assert "api/server/thumbnail" in lab.HTML
             assert "server-entry-file" in lab.HTML
             assert 'id="tooltipLayer"' in lab.HTML
