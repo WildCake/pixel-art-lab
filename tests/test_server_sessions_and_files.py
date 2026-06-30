@@ -92,6 +92,10 @@ def main() -> None:
             assert "indexedDB.open(PRESET_DB_NAME" in lab.HTML
             assert "localStorage.removeItem(PRESET_STORAGE_KEY)" in lab.HTML
             assert "async function saveCurrentPreset()" in lab.HTML
+            assert "pixel-art-lab-recovered-local-presets-seeded-v1" in lab.HTML
+            assert "Backs_1" in lab.HTML
+            assert "Backs_2" in lab.HTML
+            assert "kek" in lab.HTML
             assert "api/server/thumbnail" in lab.HTML
             assert "server-entry-file" in lab.HTML
             assert 'id="tooltipLayer"' in lab.HTML

@@ -35,6 +35,8 @@ Custom presets and settings JSON exports store every `data-setting` control in t
 
 Browser-local custom presets are stored in IndexedDB. Older presets saved under the legacy `pixel-art-lab-custom-presets-v1` `localStorage` key are migrated automatically, then the old key is cleared to avoid the small `localStorage` quota blocking later preset saves.
 
+The historical local Chrome presets recovered from the old `http://127.0.0.1:8767` origin are seeded once into empty/new origins as normal custom presets: `kek`, `Backs_1`, and `Backs_2`. User-edited presets with the same names take priority over the recovered seed.
+
 ## Portable Project Files
 
 `Save project` downloads a `.pixelartlab` JSON file with `format: "diliada.pixel-art-lab.project"` and `version: 1`. The package embeds the source image as a data URL under `source.data` and stores all normalized GUI controls under `settings`, so another operator can load the file without needing the original PNG/JPG/WebP separately.

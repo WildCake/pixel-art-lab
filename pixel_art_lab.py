@@ -1841,6 +1841,182 @@ HTML = r"""<!doctype html>
     const PRESET_DB_NAME = 'pixel-art-lab-presets';
     const PRESET_DB_VERSION = 1;
     const PRESET_DB_STORE = 'presets';
+    const PRESET_RECOVERY_SEED_KEY = 'pixel-art-lab-recovered-local-presets-seeded-v1';
+    const RECOVERED_LOCAL_PRESETS = {
+      Backs_1: {
+        accentPaletteWeight: 0.8,
+        aspectDriver: 'width',
+        aspectLock: true,
+        autocontrastCutoff: 0.001,
+        bilateralRadius: 1,
+        bilateralSafeEdges: true,
+        bilateralSigmaColor: 18,
+        bilateralSigmaSpace: 1.4,
+        colorDistance: 'oklab',
+        colors: 64,
+        contrast: 1.1,
+        dither: 'ordered',
+        ditherEdgeThreshold: 0.28,
+        ditherErrorThreshold: 3,
+        ditherLumaRange: 45,
+        ditherScope: 'adaptive',
+        ditherStrength: 10,
+        edgeMode: 'sobel',
+        edgePaletteWeight: 0.45,
+        edgeSharpen: 0,
+        edgeThreshold: 0.05,
+        flatRegionChannelStep: 0,
+        flatRegionEdgeThreshold: 0.18,
+        flatRegionLumaRange: 10,
+        flatRegionMaxSaturation: 0.35,
+        flatRegionPaletteColors: 0,
+        gridAutoSize: true,
+        gridDarkThreshold: 38,
+        gridQuantizeFirst: false,
+        gridSnap: true,
+        gridSnapMethod: 'center',
+        gridVariant: 0,
+        hueMatchWeight: 0.35,
+        hueRarityWeight: 1.6,
+        includeEdgePreview: false,
+        interestingColorSlots: 0,
+        interestingMinSaturation: 0.07,
+        interestingMinValue: 0.05,
+        mixelCleanupDistance: 18,
+        mixelCleanupMaxSaturation: 0.45,
+        mixelCleanupMinNeighbors: 3,
+        mixelCleanupPasses: 2,
+        paletteInput: 'prepared',
+        paletteStrategy: 'projected-anchors',
+        preserveLuma: false,
+        preserveSaturation: false,
+        protectedHueMinSaturation: 0.08,
+        protectedHueRanges: '',
+        protectedHueSlots: 0,
+        protectedHueWeight: 0,
+        resample: 'box',
+        saturation: 1.05,
+        sharpness: 0,
+        targetHeight: 290,
+        targetWidth: 515,
+      },
+      Backs_2: {
+        accentPaletteWeight: 0.8,
+        aspectDriver: 'width',
+        aspectLock: true,
+        autocontrastCutoff: 0.001,
+        bilateralRadius: 3,
+        bilateralSafeEdges: true,
+        bilateralSigmaColor: 18,
+        bilateralSigmaSpace: 1.4,
+        colorDistance: 'oklab',
+        colors: 64,
+        contrast: 1.1,
+        dither: 'ordered',
+        ditherEdgeThreshold: 0.28,
+        ditherErrorThreshold: 3,
+        ditherLumaRange: 45,
+        ditherScope: 'adaptive',
+        ditherStrength: 5,
+        edgeMode: 'sobel',
+        edgePaletteWeight: 0.45,
+        edgeSharpen: 0.1,
+        edgeThreshold: 0.05,
+        flatRegionChannelStep: 0,
+        flatRegionEdgeThreshold: 0.18,
+        flatRegionLumaRange: 10,
+        flatRegionMaxSaturation: 0.35,
+        flatRegionPaletteColors: 0,
+        gridAutoSize: true,
+        gridAxisStabilization: 'conservative',
+        gridDarkThreshold: 38,
+        gridQuantizeFirst: false,
+        gridSnap: true,
+        gridSnapMethod: 'center',
+        gridTopology: 'elastic',
+        gridVariant: 3,
+        hueMatchWeight: 0.35,
+        hueRarityWeight: 1.6,
+        includeEdgePreview: false,
+        interestingColorSlots: 0,
+        interestingMinSaturation: 0.07,
+        interestingMinValue: 0.05,
+        mixelCleanupDistance: 25,
+        mixelCleanupMaxSaturation: 0.45,
+        mixelCleanupMinNeighbors: 3,
+        mixelCleanupPasses: 2,
+        paletteInput: 'prepared',
+        paletteStrategy: 'projected-anchors',
+        preserveAlpha: true,
+        preserveLuma: false,
+        preserveSaturation: false,
+        protectedHueMinSaturation: 0.08,
+        protectedHueRanges: '',
+        protectedHueSlots: 0,
+        protectedHueWeight: 0,
+        resample: 'box',
+        saturation: 1.05,
+        sharpness: 0,
+        targetHeight: 432,
+        targetWidth: 768,
+      },
+      kek: {
+        accentPaletteWeight: 0.8,
+        aspectDriver: 'height',
+        aspectLock: true,
+        autocontrastCutoff: 0,
+        bilateralRadius: 2,
+        bilateralSigmaColor: 18,
+        bilateralSigmaSpace: 1.4,
+        colorDistance: 'oklab',
+        colors: 64,
+        contrast: 1.05,
+        dither: 'ordered',
+        ditherEdgeThreshold: 0.28,
+        ditherErrorThreshold: 3,
+        ditherLumaRange: 45,
+        ditherScope: 'adaptive',
+        ditherStrength: 23,
+        edgeMode: 'contour',
+        edgePaletteWeight: 0.45,
+        edgeSharpen: 0,
+        edgeThreshold: 0.05,
+        flatRegionChannelStep: 5,
+        flatRegionEdgeThreshold: 0.18,
+        flatRegionLumaRange: 10,
+        flatRegionMaxSaturation: 0.35,
+        flatRegionPaletteColors: 5,
+        gridAutoSize: true,
+        gridDarkThreshold: 2,
+        gridQuantizeFirst: false,
+        gridSnap: true,
+        gridSnapMethod: 'center',
+        gridVariant: 1,
+        hueMatchWeight: 0.35,
+        hueRarityWeight: 1.6,
+        includeEdgePreview: false,
+        interestingColorSlots: 0,
+        interestingMinSaturation: 0.07,
+        interestingMinValue: 0.05,
+        mixelCleanupDistance: 20,
+        mixelCleanupMaxSaturation: 2,
+        mixelCleanupMinNeighbors: 5,
+        mixelCleanupPasses: 2,
+        paletteInput: 'prepared',
+        paletteStrategy: 'projected-rare',
+        preserveLuma: false,
+        preserveSaturation: false,
+        protectedHueMinSaturation: 0.08,
+        protectedHueRanges: '',
+        protectedHueSlots: 0,
+        protectedHueWeight: 0,
+        resample: 'box',
+        saturation: 1.05,
+        sharpness: 0,
+        targetHeight: 256,
+        targetWidth: 171,
+      },
+    };
     const PROJECT_FORMAT = 'diliada.pixel-art-lab.project';
     const PROJECT_FORMAT_VERSION = 1;
     const APP_BASE_PATH = window.location.pathname.endsWith('/')
@@ -2319,6 +2495,26 @@ HTML = r"""<!doctype html>
       return normalized;
     }
 
+    function recoveredPresetStore() {
+      return normalizePresetStore(RECOVERED_LOCAL_PRESETS);
+    }
+
+    function recoveredPresetSeeded() {
+      try {
+        return localStorage.getItem(PRESET_RECOVERY_SEED_KEY) === '1';
+      } catch (_err) {
+        return false;
+      }
+    }
+
+    function markRecoveredPresetSeeded() {
+      try {
+        localStorage.setItem(PRESET_RECOVERY_SEED_KEY, '1');
+      } catch (_err) {
+        // Saving the marker is best-effort; the IndexedDB presets are the durable data.
+      }
+    }
+
     function readLegacyPresetStore() {
       try {
         const raw = localStorage.getItem(PRESET_STORAGE_KEY);
@@ -2418,13 +2614,16 @@ HTML = r"""<!doctype html>
 
     async function readPresetStore() {
       const legacyStore = readLegacyPresetStore();
-      if (!indexedDbAvailable()) return legacyStore;
+      const recoveredStore = recoveredPresetSeeded() ? {} : recoveredPresetStore();
+      if (!indexedDbAvailable()) return { ...recoveredStore, ...legacyStore };
       try {
         const dbStore = await readPresetStoreFromDb();
         const legacyNames = Object.keys(legacyStore);
-        if (!legacyNames.length) return dbStore;
-        const mergedStore = { ...legacyStore, ...dbStore };
+        const recoveredNames = Object.keys(recoveredStore);
+        if (!legacyNames.length && !recoveredNames.length) return dbStore;
+        const mergedStore = { ...recoveredStore, ...legacyStore, ...dbStore };
         await writePresetStoreToDb(mergedStore);
+        if (recoveredNames.length) markRecoveredPresetSeeded();
         try {
           localStorage.removeItem(PRESET_STORAGE_KEY);
         } catch (_err) {
@@ -2433,7 +2632,7 @@ HTML = r"""<!doctype html>
         return mergedStore;
       } catch (err) {
         console.warn('Preset database unavailable; using legacy localStorage presets.', err);
-        return legacyStore;
+        return { ...recoveredStore, ...legacyStore };
       }
     }
 
