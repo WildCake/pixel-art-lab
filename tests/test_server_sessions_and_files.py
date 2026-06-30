@@ -35,9 +35,11 @@ def main() -> None:
         Image.new("RGB", (640, 480), (78, 90, 123)).save(large_image_path)
 
         old_root = lab.SERVER_BROWSER_ROOT
+        old_preset_store_path = lab.PRESET_STORE_PATH
         old_sessions = lab.SESSIONS.copy()
         try:
             lab.SERVER_BROWSER_ROOT = root
+            lab.PRESET_STORE_PATH = Path(temp_dir) / "data" / "presets.json"
             lab.SESSIONS.clear()
 
             listed_root = lab.list_server_files("")
@@ -80,6 +82,23 @@ def main() -> None:
             session_b = lab.get_session("bbbbbbbbbbbbbbbb")
             assert session_a is not session_b
             assert session_a.render_lock is not session_b.render_lock
+            seeded_presets = lab.load_preset_store()
+            assert sorted(seeded_presets) == ["Backs_1", "Backs_2"]
+            assert seeded_presets["Backs_2"]["targetWidth"] == 768
+            assert "kek" not in seeded_presets
+            duplicate_store = lab.write_preset_store(
+                {
+                    "Backs_2": {"colors": 12},
+                    " backs_2 ": {"colors": 34},
+                    "New": {"colors": 56},
+                }
+            )
+            assert list(duplicate_store) == ["backs_2", "New"]
+            assert duplicate_store["backs_2"]["colors"] == 34
+            saved_store = lab.save_preset("Test preset", {"colors": 77})
+            assert saved_store["Test preset"]["colors"] == 77
+            deleted_store = lab.delete_preset("test PRESET")
+            assert "Test preset" not in deleted_store
 
             assert 'id="openFromServer"' in lab.HTML
             assert 'id="saveInPlace"' in lab.HTML
@@ -88,14 +107,11 @@ def main() -> None:
             assert 'id="projectFile"' in lab.HTML
             assert "diliada.pixel-art-lab.project" in lab.HTML
             assert ".pixelartlab" in lab.HTML
-            assert "pixel-art-lab-presets" in lab.HTML
-            assert "indexedDB.open(PRESET_DB_NAME" in lab.HTML
-            assert "localStorage.removeItem(PRESET_STORAGE_KEY)" in lab.HTML
+            assert "api/presets" in lab.HTML
+            assert "indexedDB.open" not in lab.HTML
+            assert "localStorage" not in lab.HTML
             assert "async function saveCurrentPreset()" in lab.HTML
-            assert "pixel-art-lab-recovered-local-presets-seeded-v1" in lab.HTML
-            assert "Backs_1" in lab.HTML
-            assert "Backs_2" in lab.HTML
-            assert "kek" in lab.HTML
+            assert "RECOVERED_LOCAL_PRESETS" not in lab.HTML
             assert "api/server/thumbnail" in lab.HTML
             assert "server-entry-file" in lab.HTML
             assert 'id="tooltipLayer"' in lab.HTML
@@ -109,6 +125,7 @@ def main() -> None:
             assert "ctx.imageSmoothingEnabled = true;" not in overlay_body
         finally:
             lab.SERVER_BROWSER_ROOT = old_root
+            lab.PRESET_STORE_PATH = old_preset_store_path
             lab.SESSIONS.clear()
             lab.SESSIONS.update(old_sessions)
 

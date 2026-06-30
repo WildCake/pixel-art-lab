@@ -9,6 +9,7 @@ import io
 import json
 import math
 import mimetypes
+import os
 import re
 import secrets
 import socket
@@ -49,6 +50,7 @@ MAX_RENDER_CACHE_ENTRIES = 8
 SESSION_COOKIE_NAME = "pixel_art_lab_session"
 MAX_SESSION_COUNT = 128
 SERVER_BROWSER_ROOT = SCRIPT_DIR.parent / "assets" / "generated"
+PRESET_STORE_PATH = Path(os.environ.get("PIXEL_ART_LAB_PRESET_STORE", SCRIPT_DIR / "data" / "presets.json"))
 SERVER_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 SERVER_THUMBNAIL_SIZE = (160, 120)
 PIXEL_LAB_SAVE_SUFFIX = "_PIXEL_LAB"
@@ -67,6 +69,126 @@ PALETTE_STRATEGIES = (
     "projected-frontier",
     "projected-graft",
 )
+RECOVERED_PRESET_SEED: dict[str, dict[str, Any]] = {
+    "Backs_1": {
+        "accentPaletteWeight": 0.8,
+        "aspectDriver": "width",
+        "aspectLock": True,
+        "autocontrastCutoff": 0.001,
+        "bilateralRadius": 1,
+        "bilateralSafeEdges": True,
+        "bilateralSigmaColor": 18,
+        "bilateralSigmaSpace": 1.4,
+        "colorDistance": "oklab",
+        "colors": 64,
+        "contrast": 1.1,
+        "dither": "ordered",
+        "ditherEdgeThreshold": 0.28,
+        "ditherErrorThreshold": 3,
+        "ditherLumaRange": 45,
+        "ditherScope": "adaptive",
+        "ditherStrength": 10,
+        "edgeMode": "sobel",
+        "edgePaletteWeight": 0.45,
+        "edgeSharpen": 0,
+        "edgeThreshold": 0.05,
+        "flatRegionChannelStep": 0,
+        "flatRegionEdgeThreshold": 0.18,
+        "flatRegionLumaRange": 10,
+        "flatRegionMaxSaturation": 0.35,
+        "flatRegionPaletteColors": 0,
+        "gridAutoSize": True,
+        "gridDarkThreshold": 38,
+        "gridQuantizeFirst": False,
+        "gridSnap": True,
+        "gridSnapMethod": "center",
+        "gridVariant": 0,
+        "hueMatchWeight": 0.35,
+        "hueRarityWeight": 1.6,
+        "includeEdgePreview": False,
+        "interestingColorSlots": 0,
+        "interestingMinSaturation": 0.07,
+        "interestingMinValue": 0.05,
+        "mixelCleanupDistance": 18,
+        "mixelCleanupMaxSaturation": 0.45,
+        "mixelCleanupMinNeighbors": 3,
+        "mixelCleanupPasses": 2,
+        "paletteInput": "prepared",
+        "paletteStrategy": "projected-anchors",
+        "preserveLuma": False,
+        "preserveSaturation": False,
+        "protectedHueMinSaturation": 0.08,
+        "protectedHueRanges": "",
+        "protectedHueSlots": 0,
+        "protectedHueWeight": 0,
+        "resample": "box",
+        "saturation": 1.05,
+        "sharpness": 0,
+        "targetHeight": 290,
+        "targetWidth": 515,
+    },
+    "Backs_2": {
+        "accentPaletteWeight": 0.8,
+        "aspectDriver": "width",
+        "aspectLock": True,
+        "autocontrastCutoff": 0.001,
+        "bilateralRadius": 3,
+        "bilateralSafeEdges": True,
+        "bilateralSigmaColor": 18,
+        "bilateralSigmaSpace": 1.4,
+        "colorDistance": "oklab",
+        "colors": 64,
+        "contrast": 1.1,
+        "dither": "ordered",
+        "ditherEdgeThreshold": 0.28,
+        "ditherErrorThreshold": 3,
+        "ditherLumaRange": 45,
+        "ditherScope": "adaptive",
+        "ditherStrength": 5,
+        "edgeMode": "sobel",
+        "edgePaletteWeight": 0.45,
+        "edgeSharpen": 0.1,
+        "edgeThreshold": 0.05,
+        "flatRegionChannelStep": 0,
+        "flatRegionEdgeThreshold": 0.18,
+        "flatRegionLumaRange": 10,
+        "flatRegionMaxSaturation": 0.35,
+        "flatRegionPaletteColors": 0,
+        "gridAutoSize": True,
+        "gridAxisStabilization": "conservative",
+        "gridDarkThreshold": 38,
+        "gridQuantizeFirst": False,
+        "gridSnap": True,
+        "gridSnapMethod": "center",
+        "gridTopology": "elastic",
+        "gridVariant": 3,
+        "hueMatchWeight": 0.35,
+        "hueRarityWeight": 1.6,
+        "includeEdgePreview": False,
+        "interestingColorSlots": 0,
+        "interestingMinSaturation": 0.07,
+        "interestingMinValue": 0.05,
+        "mixelCleanupDistance": 25,
+        "mixelCleanupMaxSaturation": 0.45,
+        "mixelCleanupMinNeighbors": 3,
+        "mixelCleanupPasses": 2,
+        "paletteInput": "prepared",
+        "paletteStrategy": "projected-anchors",
+        "preserveAlpha": True,
+        "preserveLuma": False,
+        "preserveSaturation": False,
+        "protectedHueMinSaturation": 0.08,
+        "protectedHueRanges": "",
+        "protectedHueSlots": 0,
+        "protectedHueWeight": 0,
+        "resample": "box",
+        "saturation": 1.05,
+        "sharpness": 0,
+        "targetHeight": 432,
+        "targetWidth": 768,
+    },
+}
+PRESET_STORE_LOCK = threading.RLock()
 
 
 @dataclass
@@ -277,6 +399,83 @@ def image_response_payload(image: Image.Image, name: str, source_path: Path | No
         "saveTargetPath": server_relative_path(save_target_path) if save_target_path is not None else None,
         "canSaveInPlace": save_target_path is not None,
     }
+
+
+def normalize_preset_name(name: Any) -> str:
+    return str(name).strip()
+
+
+def normalize_preset_store(store: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(store, dict):
+        return {}
+    by_key: dict[str, tuple[str, dict[str, Any]]] = {}
+    for raw_name, raw_settings in store.items():
+        name = normalize_preset_name(raw_name)
+        if not name or not isinstance(raw_settings, dict):
+            continue
+        by_key[name.casefold()] = (name, dict(raw_settings))
+    return {
+        name: settings
+        for name, settings in sorted(
+            by_key.values(),
+            key=lambda item: item[0].casefold(),
+        )
+    }
+
+
+def preset_store_payload(store: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    normalized = normalize_preset_store(store)
+    return {
+        "ok": True,
+        "presets": normalized,
+        "names": list(normalized.keys()),
+    }
+
+
+def write_preset_store(store: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    normalized = normalize_preset_store(store)
+    PRESET_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = PRESET_STORE_PATH.with_suffix(".json.tmp")
+    temp_path.write_text(json.dumps(normalized, indent=2, sort_keys=True), encoding="utf-8")
+    temp_path.replace(PRESET_STORE_PATH)
+    return normalized
+
+
+def load_preset_store() -> dict[str, dict[str, Any]]:
+    with PRESET_STORE_LOCK:
+        if not PRESET_STORE_PATH.exists():
+            return write_preset_store(RECOVERED_PRESET_SEED)
+        try:
+            raw = json.loads(PRESET_STORE_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"preset store is invalid JSON: {PRESET_STORE_PATH}") from exc
+        normalized = normalize_preset_store(raw)
+        if raw != normalized:
+            write_preset_store(normalized)
+        return normalized
+
+
+def save_preset(name: Any, settings: Any) -> dict[str, dict[str, Any]]:
+    preset_name = normalize_preset_name(name)
+    if not preset_name:
+        raise ValueError("preset name is required")
+    if not isinstance(settings, dict):
+        raise ValueError("preset settings must be an object")
+    with PRESET_STORE_LOCK:
+        store = load_preset_store()
+        store[preset_name] = dict(settings)
+        return write_preset_store(store)
+
+
+def delete_preset(name: Any) -> dict[str, dict[str, Any]]:
+    preset_name = normalize_preset_name(name)
+    if not preset_name:
+        raise ValueError("preset name is required")
+    with PRESET_STORE_LOCK:
+        store = load_preset_store()
+        target_key = preset_name.casefold()
+        store = {key: value for key, value in store.items() if key.casefold() != target_key}
+        return write_preset_store(store)
 
 
 def list_server_files(value: str) -> dict[str, Any]:
@@ -1428,20 +1627,20 @@ HTML = r"""<!doctype html>
 
       <fieldset>
         <legend>My Presets</legend>
-        <p class="section-note">Browser-local presets for your own tested combinations. Built-in experiment buttons are intentionally not included.</p>
+        <p class="section-note">Server-side presets for tested combinations. Built-in experiment buttons are intentionally not included.</p>
         <div class="presets">
           <label>
-            <span class="label-title">Preset <span class="field-hint">stored in this browser</span></span>
-            <select id="customPresetSelect" data-tooltip="Choose a preset saved in this browser."></select>
+            <span class="label-title">Preset <span class="field-hint">stored on server</span></span>
+            <select id="customPresetSelect" data-tooltip="Choose a preset saved on this server."></select>
           </label>
           <label>
             <span class="label-title">Name <span class="field-hint">required to save</span></span>
             <input id="presetName" type="text" placeholder="preset name" data-tooltip="Name for saving or replacing a custom preset.">
           </label>
           <div class="preset-actions">
-            <button id="loadPreset" data-tooltip="Apply the selected preset to all controls.">Load</button>
-            <button id="savePreset" data-tooltip="Save current controls under the typed name.">Save</button>
-            <button id="deletePreset" data-tooltip="Delete the selected custom preset from this browser.">Delete</button>
+            <button id="loadPreset" data-tooltip="Apply the selected server preset to all controls.">Load</button>
+            <button id="savePreset" data-tooltip="Save current controls under the typed name on this server.">Save</button>
+            <button id="deletePreset" data-tooltip="Delete the selected custom preset from this server.">Delete</button>
           </div>
         </div>
       </fieldset>
@@ -1837,186 +2036,6 @@ HTML = r"""<!doctype html>
     const MAX_OUTPUT_WIDTH = 4096;
     const VIEW_FIT_MIN_MARGIN = 16;
     const VIEW_FIT_MAX_MARGIN = 48;
-    const PRESET_STORAGE_KEY = 'pixel-art-lab-custom-presets-v1';
-    const PRESET_DB_NAME = 'pixel-art-lab-presets';
-    const PRESET_DB_VERSION = 1;
-    const PRESET_DB_STORE = 'presets';
-    const PRESET_RECOVERY_SEED_KEY = 'pixel-art-lab-recovered-local-presets-seeded-v1';
-    const RECOVERED_LOCAL_PRESETS = {
-      Backs_1: {
-        accentPaletteWeight: 0.8,
-        aspectDriver: 'width',
-        aspectLock: true,
-        autocontrastCutoff: 0.001,
-        bilateralRadius: 1,
-        bilateralSafeEdges: true,
-        bilateralSigmaColor: 18,
-        bilateralSigmaSpace: 1.4,
-        colorDistance: 'oklab',
-        colors: 64,
-        contrast: 1.1,
-        dither: 'ordered',
-        ditherEdgeThreshold: 0.28,
-        ditherErrorThreshold: 3,
-        ditherLumaRange: 45,
-        ditherScope: 'adaptive',
-        ditherStrength: 10,
-        edgeMode: 'sobel',
-        edgePaletteWeight: 0.45,
-        edgeSharpen: 0,
-        edgeThreshold: 0.05,
-        flatRegionChannelStep: 0,
-        flatRegionEdgeThreshold: 0.18,
-        flatRegionLumaRange: 10,
-        flatRegionMaxSaturation: 0.35,
-        flatRegionPaletteColors: 0,
-        gridAutoSize: true,
-        gridDarkThreshold: 38,
-        gridQuantizeFirst: false,
-        gridSnap: true,
-        gridSnapMethod: 'center',
-        gridVariant: 0,
-        hueMatchWeight: 0.35,
-        hueRarityWeight: 1.6,
-        includeEdgePreview: false,
-        interestingColorSlots: 0,
-        interestingMinSaturation: 0.07,
-        interestingMinValue: 0.05,
-        mixelCleanupDistance: 18,
-        mixelCleanupMaxSaturation: 0.45,
-        mixelCleanupMinNeighbors: 3,
-        mixelCleanupPasses: 2,
-        paletteInput: 'prepared',
-        paletteStrategy: 'projected-anchors',
-        preserveLuma: false,
-        preserveSaturation: false,
-        protectedHueMinSaturation: 0.08,
-        protectedHueRanges: '',
-        protectedHueSlots: 0,
-        protectedHueWeight: 0,
-        resample: 'box',
-        saturation: 1.05,
-        sharpness: 0,
-        targetHeight: 290,
-        targetWidth: 515,
-      },
-      Backs_2: {
-        accentPaletteWeight: 0.8,
-        aspectDriver: 'width',
-        aspectLock: true,
-        autocontrastCutoff: 0.001,
-        bilateralRadius: 3,
-        bilateralSafeEdges: true,
-        bilateralSigmaColor: 18,
-        bilateralSigmaSpace: 1.4,
-        colorDistance: 'oklab',
-        colors: 64,
-        contrast: 1.1,
-        dither: 'ordered',
-        ditherEdgeThreshold: 0.28,
-        ditherErrorThreshold: 3,
-        ditherLumaRange: 45,
-        ditherScope: 'adaptive',
-        ditherStrength: 5,
-        edgeMode: 'sobel',
-        edgePaletteWeight: 0.45,
-        edgeSharpen: 0.1,
-        edgeThreshold: 0.05,
-        flatRegionChannelStep: 0,
-        flatRegionEdgeThreshold: 0.18,
-        flatRegionLumaRange: 10,
-        flatRegionMaxSaturation: 0.35,
-        flatRegionPaletteColors: 0,
-        gridAutoSize: true,
-        gridAxisStabilization: 'conservative',
-        gridDarkThreshold: 38,
-        gridQuantizeFirst: false,
-        gridSnap: true,
-        gridSnapMethod: 'center',
-        gridTopology: 'elastic',
-        gridVariant: 3,
-        hueMatchWeight: 0.35,
-        hueRarityWeight: 1.6,
-        includeEdgePreview: false,
-        interestingColorSlots: 0,
-        interestingMinSaturation: 0.07,
-        interestingMinValue: 0.05,
-        mixelCleanupDistance: 25,
-        mixelCleanupMaxSaturation: 0.45,
-        mixelCleanupMinNeighbors: 3,
-        mixelCleanupPasses: 2,
-        paletteInput: 'prepared',
-        paletteStrategy: 'projected-anchors',
-        preserveAlpha: true,
-        preserveLuma: false,
-        preserveSaturation: false,
-        protectedHueMinSaturation: 0.08,
-        protectedHueRanges: '',
-        protectedHueSlots: 0,
-        protectedHueWeight: 0,
-        resample: 'box',
-        saturation: 1.05,
-        sharpness: 0,
-        targetHeight: 432,
-        targetWidth: 768,
-      },
-      kek: {
-        accentPaletteWeight: 0.8,
-        aspectDriver: 'height',
-        aspectLock: true,
-        autocontrastCutoff: 0,
-        bilateralRadius: 2,
-        bilateralSigmaColor: 18,
-        bilateralSigmaSpace: 1.4,
-        colorDistance: 'oklab',
-        colors: 64,
-        contrast: 1.05,
-        dither: 'ordered',
-        ditherEdgeThreshold: 0.28,
-        ditherErrorThreshold: 3,
-        ditherLumaRange: 45,
-        ditherScope: 'adaptive',
-        ditherStrength: 23,
-        edgeMode: 'contour',
-        edgePaletteWeight: 0.45,
-        edgeSharpen: 0,
-        edgeThreshold: 0.05,
-        flatRegionChannelStep: 5,
-        flatRegionEdgeThreshold: 0.18,
-        flatRegionLumaRange: 10,
-        flatRegionMaxSaturation: 0.35,
-        flatRegionPaletteColors: 5,
-        gridAutoSize: true,
-        gridDarkThreshold: 2,
-        gridQuantizeFirst: false,
-        gridSnap: true,
-        gridSnapMethod: 'center',
-        gridVariant: 1,
-        hueMatchWeight: 0.35,
-        hueRarityWeight: 1.6,
-        includeEdgePreview: false,
-        interestingColorSlots: 0,
-        interestingMinSaturation: 0.07,
-        interestingMinValue: 0.05,
-        mixelCleanupDistance: 20,
-        mixelCleanupMaxSaturation: 2,
-        mixelCleanupMinNeighbors: 5,
-        mixelCleanupPasses: 2,
-        paletteInput: 'prepared',
-        paletteStrategy: 'projected-rare',
-        preserveLuma: false,
-        preserveSaturation: false,
-        protectedHueMinSaturation: 0.08,
-        protectedHueRanges: '',
-        protectedHueSlots: 0,
-        protectedHueWeight: 0,
-        resample: 'box',
-        saturation: 1.05,
-        sharpness: 0,
-        targetHeight: 256,
-        targetWidth: 171,
-      },
-    };
     const PROJECT_FORMAT = 'diliada.pixel-art-lab.project';
     const PROJECT_FORMAT_VERSION = 1;
     const APP_BASE_PATH = window.location.pathname.endsWith('/')
@@ -2485,188 +2504,43 @@ HTML = r"""<!doctype html>
     }
 
     function normalizePresetStore(store) {
-      if (!store || typeof store !== 'object' || Array.isArray(store)) return {};
-      const normalized = {};
-      Object.entries(store).forEach(([name, settings]) => {
-        if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
-          normalized[String(name)] = settings;
-        }
-      });
-      return normalized;
-    }
-
-    function recoveredPresetStore() {
-      return normalizePresetStore(RECOVERED_LOCAL_PRESETS);
-    }
-
-    function recoveredPresetSeeded() {
-      try {
-        return localStorage.getItem(PRESET_RECOVERY_SEED_KEY) === '1';
-      } catch (_err) {
-        return false;
-      }
-    }
-
-    function markRecoveredPresetSeeded() {
-      try {
-        localStorage.setItem(PRESET_RECOVERY_SEED_KEY, '1');
-      } catch (_err) {
-        // Saving the marker is best-effort; the IndexedDB presets are the durable data.
-      }
-    }
-
-    function readLegacyPresetStore() {
-      try {
-        const raw = localStorage.getItem(PRESET_STORAGE_KEY);
-        if (!raw) return {};
-        return normalizePresetStore(JSON.parse(raw));
-      } catch (err) {
-        console.warn('Could not read legacy Pixel Art Lab presets.', err);
-        return {};
-      }
-    }
-
-    function isQuotaExceededError(err) {
-      return Boolean(err && (
-        err.name === 'QuotaExceededError' ||
-        err.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
-        err.code === 22 ||
-        err.code === 1014
-      ));
-    }
-
-    function indexedDbAvailable() {
-      return Boolean(window.indexedDB);
-    }
-
-    function idbRequest(request) {
-      return new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error || new Error('IndexedDB request failed'));
-      });
-    }
-
-    function idbTransactionDone(transaction) {
-      return new Promise((resolve, reject) => {
-        transaction.oncomplete = () => resolve();
-        transaction.onabort = () => reject(transaction.error || new Error('IndexedDB transaction aborted'));
-        transaction.onerror = () => reject(transaction.error || new Error('IndexedDB transaction failed'));
-      });
-    }
-
-    function openPresetDb() {
-      if (!indexedDbAvailable()) {
-        return Promise.reject(new Error('IndexedDB is not available'));
-      }
-      if (!presetDbPromise) {
-        presetDbPromise = new Promise((resolve, reject) => {
-          const request = indexedDB.open(PRESET_DB_NAME, PRESET_DB_VERSION);
-          request.onupgradeneeded = () => {
-            const db = request.result;
-            if (!db.objectStoreNames.contains(PRESET_DB_STORE)) {
-              db.createObjectStore(PRESET_DB_STORE, { keyPath: 'name' });
-            }
-          };
-          request.onsuccess = () => {
-            const db = request.result;
-            db.onversionchange = () => db.close();
-            resolve(db);
-          };
-          request.onerror = () => reject(request.error || new Error('Could not open preset database'));
-          request.onblocked = () => reject(new Error('Preset database is blocked by another tab'));
-        }).catch((err) => {
-          presetDbPromise = null;
-          throw err;
-        });
-      }
-      return presetDbPromise;
-    }
-
-    async function readPresetStoreFromDb() {
-      const db = await openPresetDb();
-      const transaction = db.transaction(PRESET_DB_STORE, 'readonly');
-      const done = idbTransactionDone(transaction);
-      const objectStore = transaction.objectStore(PRESET_DB_STORE);
-      const records = await idbRequest(objectStore.getAll());
-      await done;
-      const store = {};
-      records.forEach((record) => {
-        if (record && record.name && record.settings && typeof record.settings === 'object') {
-          store[String(record.name)] = record.settings;
-        }
-      });
-      return store;
-    }
-
-    async function writePresetStoreToDb(store) {
-      const normalized = normalizePresetStore(store);
-      const db = await openPresetDb();
-      const transaction = db.transaction(PRESET_DB_STORE, 'readwrite');
-      const done = idbTransactionDone(transaction);
-      const objectStore = transaction.objectStore(PRESET_DB_STORE);
-      objectStore.clear();
-      const updatedAt = new Date().toISOString();
-      Object.entries(normalized).forEach(([name, settings]) => {
-        objectStore.put({ name, settings, updatedAt });
-      });
-      await done;
-    }
-
-    async function readPresetStore() {
-      const legacyStore = readLegacyPresetStore();
-      const recoveredStore = recoveredPresetSeeded() ? {} : recoveredPresetStore();
-      if (!indexedDbAvailable()) return { ...recoveredStore, ...legacyStore };
-      try {
-        const dbStore = await readPresetStoreFromDb();
-        const legacyNames = Object.keys(legacyStore);
-        const recoveredNames = Object.keys(recoveredStore);
-        if (!legacyNames.length && !recoveredNames.length) return dbStore;
-        const mergedStore = { ...recoveredStore, ...legacyStore, ...dbStore };
-        await writePresetStoreToDb(mergedStore);
-        if (recoveredNames.length) markRecoveredPresetSeeded();
-        try {
-          localStorage.removeItem(PRESET_STORAGE_KEY);
-        } catch (_err) {
-          // Best-effort cleanup only; the migrated IndexedDB store is authoritative.
-        }
-        return mergedStore;
-      } catch (err) {
-        console.warn('Preset database unavailable; using legacy localStorage presets.', err);
-        return { ...recoveredStore, ...legacyStore };
-      }
-    }
-
-    async function writePresetStore(store) {
-      const normalized = normalizePresetStore(store);
-      if (indexedDbAvailable()) {
-        try {
-          await writePresetStoreToDb(normalized);
-          try {
-            localStorage.removeItem(PRESET_STORAGE_KEY);
-          } catch (_err) {
-            // The IndexedDB write succeeded, so failing to free legacy storage is non-fatal.
-          }
-          return;
-        } catch (err) {
-          console.warn('Could not save presets to IndexedDB.', err);
-        }
-      }
-      try {
-        localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(normalized));
-      } catch (err) {
-        if (isQuotaExceededError(err)) {
-          throw new Error('browser preset storage is full; delete old site data or save a .pixelartlab project');
-        }
-        throw err;
-      }
+      return store && typeof store === 'object' && !Array.isArray(store) ? store : {};
     }
 
     function presetNames(store = {}) {
       return Object.keys(store).sort((a, b) => a.localeCompare(b));
     }
 
-    async function refreshPresetSelect(selectedName = '') {
-      const store = await readPresetStore();
+    async function readPresetStore() {
+      const data = await getJson(appPath('api/presets'));
+      return normalizePresetStore(data.presets);
+    }
+
+    async function savePresetToServer(name, settings) {
+      const data = await postJson(appPath('api/presets'), { name, settings });
+      return normalizePresetStore(data.presets);
+    }
+
+    async function deletePresetFromServer(name) {
+      const data = await deleteJson(appPath('api/presets'), { name });
+      return normalizePresetStore(data.presets);
+    }
+
+    async function refreshPresetSelect(selectedName = '', knownStore = null) {
+      let store = normalizePresetStore(knownStore);
+      if (!knownStore) {
+        try {
+          store = await readPresetStore();
+        } catch (err) {
+          customPresetSelect.innerHTML = '';
+          const placeholder = document.createElement('option');
+          placeholder.value = '';
+          placeholder.textContent = 'presets unavailable';
+          customPresetSelect.appendChild(placeholder);
+          setStatus(err.message || 'could not load presets', 'status-error');
+          return {};
+        }
+      }
       const names = presetNames(store);
       customPresetSelect.innerHTML = '';
       const placeholder = document.createElement('option');
@@ -2681,6 +2555,7 @@ HTML = r"""<!doctype html>
       });
       customPresetSelect.value = selectedName && store[selectedName] ? selectedName : '';
       if (customPresetSelect.value) presetNameInput.value = customPresetSelect.value;
+      return store;
     }
 
     function applySettings(settings) {
@@ -2702,10 +2577,8 @@ HTML = r"""<!doctype html>
         return;
       }
       try {
-        const store = await readPresetStore();
-        store[name] = normalizeSettings(collectSettings());
-        await writePresetStore(store);
-        await refreshPresetSelect(name);
+        const store = await savePresetToServer(name, normalizeSettings(collectSettings()));
+        await refreshPresetSelect(name, store);
       } catch (err) {
         setStatus(err.message || 'could not save preset', 'status-error');
         return;
@@ -2719,7 +2592,13 @@ HTML = r"""<!doctype html>
         setStatus('select a preset first', 'status-error');
         return;
       }
-      const store = await readPresetStore();
+      let store = {};
+      try {
+        store = await readPresetStore();
+      } catch (err) {
+        setStatus(err.message || 'could not load presets', 'status-error');
+        return;
+      }
       if (!store[name]) {
         await refreshPresetSelect();
         setStatus('preset not found', 'status-error');
@@ -2737,11 +2616,9 @@ HTML = r"""<!doctype html>
         return;
       }
       try {
-        const store = await readPresetStore();
-        delete store[name];
-        await writePresetStore(store);
+        const store = await deletePresetFromServer(name);
         presetNameInput.value = '';
-        await refreshPresetSelect();
+        await refreshPresetSelect('', store);
       } catch (err) {
         setStatus(err.message || 'could not delete preset', 'status-error');
         return;
@@ -3040,6 +2917,18 @@ HTML = r"""<!doctype html>
 
     async function getJson(url, signal) {
       const response = await fetch(url, { signal });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || response.statusText);
+      return data;
+    }
+
+    async function deleteJson(url, payload, signal) {
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal,
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || response.statusText);
       return data;
@@ -3590,6 +3479,9 @@ class LabHandler(BaseHTTPRequestHandler):
         if path in {"/", "/index.html"}:
             self.send_bytes(HTML.encode("utf-8"), "text/html; charset=utf-8")
             return
+        if path == "/api/presets":
+            self.send_json(preset_store_payload(load_preset_store()))
+            return
         if path == "/api/status":
             state = self.current_state()
             with state.lock:
@@ -3630,6 +3522,12 @@ class LabHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         try:
+            if path == "/api/presets":
+                payload = self.read_json()
+                store = save_preset(payload.get("name", ""), payload.get("settings", {}))
+                self.send_json(preset_store_payload(store))
+                return
+
             if path == "/api/image":
                 payload = self.read_json()
                 image = data_url_to_image(str(payload.get("data", "")))
@@ -3713,6 +3611,17 @@ class LabHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            self.send_error(HTTPStatus.NOT_FOUND)
+        except Exception as exc:  # pragma: no cover - user-facing local tool path.
+            self.send_error_json(exc)
+
+    def do_DELETE(self) -> None:
+        path = urlparse(self.path).path
+        try:
+            if path == "/api/presets":
+                payload = self.read_json()
+                self.send_json(preset_store_payload(delete_preset(payload.get("name", ""))))
+                return
             self.send_error(HTTPStatus.NOT_FOUND)
         except Exception as exc:  # pragma: no cover - user-facing local tool path.
             self.send_error_json(exc)

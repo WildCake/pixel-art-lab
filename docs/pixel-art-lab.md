@@ -33,9 +33,9 @@ Each browser gets an isolated session cookie. Loaded images, render caches, and 
 
 Custom presets and settings JSON exports store every `data-setting` control in the GUI, including controls that are currently disabled because another option makes them inactive. For example, when `Grid Snap` plus `quantize before grid vote` temporarily disables `Dither`, the preset still remembers the dither mode the operator selected so it returns when quantize-first is turned off. Older partial presets are normalized on load: missing keys fall back to the GUI defaults instead of inheriting whatever happened to be active before loading.
 
-Browser-local custom presets are stored in IndexedDB. Older presets saved under the legacy `pixel-art-lab-custom-presets-v1` `localStorage` key are migrated automatically, then the old key is cleared to avoid the small `localStorage` quota blocking later preset saves.
+Custom presets are backend-owned and saved to the local server file `data/presets.json`, which is ignored by git. The browser does not use `localStorage` or IndexedDB for preset persistence; it only reads, saves, and deletes presets through `/api/presets`, so presets are shared across local and public origins served by the same Pixel Art Lab process.
 
-The historical local Chrome presets recovered from the old `http://127.0.0.1:8767` origin are seeded once into empty/new origins as normal custom presets: `kek`, `Backs_1`, and `Backs_2`. User-edited presets with the same names take priority over the recovered seed.
+When the backend preset file does not exist yet, the server seeds the two recovered ready presets, `Backs_1` and `Backs_2`. Preset names are normalized and deduplicated case-insensitively before saving.
 
 ## Portable Project Files
 

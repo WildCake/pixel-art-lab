@@ -32,7 +32,7 @@ It is designed for agent/operator work: an agent starts the local service, the o
 - `Open from server` browses images under the sibling project folder `assets/generated/**` with thumbnail previews when Pixel Art Lab is run from this repository layout.
 - `Save` writes the current output to a sibling `_PIXEL_LAB.png` server version; `Save As` keeps the previous browser download behavior.
 - `.pixelartlab` project files are portable JSON packages containing the source image plus every current conversion control.
-- Custom browser presets for every conversion setting, including disabled conditional controls.
+- Server-side custom presets for every conversion setting, including disabled conditional controls.
 
 ## Requirements
 

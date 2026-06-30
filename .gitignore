@@ -9,6 +9,7 @@ __pycache__/
 exports/
 output/
 renders/
+data/
 *.tmp.png
 *.settings.json
 
